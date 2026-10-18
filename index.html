@@ -1,0 +1,3319 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>地震動の可視化</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      color-scheme: light;
+      --line: #d7dde8;
+      --ink: #172033;
+      --muted: #687386;
+      --accent: #1864ab;
+      --soft: #eef5ff;
+      --danger: #b42318;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      height: 100vh;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: #f7f8fb;
+    }
+
+    main {
+      width: min(1120px, calc(100vw - 32px));
+      height: 100vh;
+      margin: 0 auto;
+      padding: 18px 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    h1 {
+      margin: 0 0 18px;
+      font-size: 24px;
+      letter-spacing: 0;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 16px;
+      min-height: 0;
+      align-items: stretch;
+    }
+
+    .panel,
+    .viewer {
+      min-height: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
+    }
+
+    .panel {
+      padding: 16px;
+    }
+
+    .viewer {
+      padding: 14px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 13px;
+      text-align: left;
+    }
+
+    label {
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      min-height: 36px;
+      border: 1px solid #c9d1df;
+      border-radius: 6px;
+      padding: 6px 9px;
+      font-size: 14px;
+      background: #fff;
+    }
+
+    textarea {
+      min-height: 88px;
+      resize: vertical;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre;
+      overflow: auto;
+    }
+
+    .small-button {
+      min-height: 32px;
+      font-size: 12px;
+    }
+
+    .parameter-section[hidden] {
+      display: none;
+    }
+
+    .parameter-row {
+      display: grid;
+      grid-template-columns: minmax(92px, 0.8fr) minmax(0, 1.2fr);
+      gap: 10px;
+      align-items: end;
+    }
+
+    .parameter-row .field {
+      min-width: 0;
+    }
+
+    .number-stepper {
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr) 38px;
+      gap: 6px;
+      align-items: stretch;
+    }
+
+    .number-stepper .step-button {
+      min-height: 36px;
+      padding: 0;
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .parameter-note {
+      margin: -4px 0 13px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    input[type="range"] {
+      padding: 0;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .timebar {
+      display: grid;
+      grid-template-columns: 56px 1fr 56px;
+      align-items: center;
+      gap: 8px;
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .timebar input {
+      min-height: 24px;
+    }
+
+    .timebar span:last-child {
+      text-align: right;
+    }
+
+    .range-readout {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      font-variant-numeric: tabular-nums;
+    }
+
+    button {
+      min-height: 38px;
+      border: 1px solid #b9c5d6;
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.primary {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #fff;
+    }
+
+    button:hover {
+      filter: brightness(0.98);
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+    }
+
+    #motion {
+      height: 420px;
+    }
+
+    #graph {
+      height: 300px;
+    }
+
+    #modeShape {
+      height: 300px;
+    }
+
+    .graph-toolbar,
+    .modal-heading {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .graph-toolbar strong,
+    .modal-heading h2 {
+      font-size: 14px;
+    }
+
+    .modal-heading h2 {
+      margin: 0;
+    }
+
+    .inline-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+
+    .inline-control label {
+      white-space: nowrap;
+    }
+
+    .inline-control select {
+      width: auto;
+      min-width: 150px;
+    }
+
+    .response-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 12px;
+      min-height: 24px;
+      padding: 7px 2px 6px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+    }
+
+    .legend-swatch {
+      width: 20px;
+      height: 3px;
+      border-radius: 2px;
+      background: var(--series-color);
+    }
+
+    .modal-analysis {
+      margin-top: 14px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+    }
+
+    .modal-heading {
+      margin-top: 0;
+    }
+
+    .equation {
+      margin: 9px 0 10px;
+      padding: 8px 10px;
+      border-radius: 5px;
+      background: #f8fafc;
+      color: #334155;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .modal-layout {
+      display: grid;
+      grid-template-columns: minmax(240px, 0.75fr) minmax(0, 1.25fr);
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .modal-table-wrap {
+      min-width: 0;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+
+    .modal-table {
+      width: 100%;
+      min-width: 680px;
+      border-collapse: collapse;
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .modal-table th,
+    .modal-table td {
+      padding: 7px 8px;
+      border-bottom: 1px solid #edf1f7;
+      text-align: right;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+
+    .modal-table th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      color: var(--muted);
+      background: #f8fafc;
+    }
+
+    .modal-table th:first-child,
+    .modal-table td:first-child,
+    .modal-table th:last-child,
+    .modal-table td:last-child {
+      text-align: left;
+    }
+
+    .modal-table tr.selected-mode td {
+      background: #eef5ff;
+    }
+
+    .modal-note {
+      margin: 9px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .status {
+      min-height: 38px;
+      margin-top: 12px;
+      padding: 9px 10px;
+      border-radius: 6px;
+      background: var(--soft);
+      color: #26384f;
+      font-size: 13px;
+      line-height: 1.5;
+      text-align: left;
+    }
+
+    .status.error {
+      background: #fff1f0;
+      color: var(--danger);
+    }
+
+    .hint {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+      text-align: left;
+    }
+
+    .history {
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .history h2 {
+      margin: 0;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      font-size: 14px;
+      letter-spacing: 0;
+      background: #f8fafc;
+    }
+
+    .history-table-wrap {
+      overflow-x: auto;
+    }
+
+    .history table {
+      width: 100%;
+      min-width: 760px;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .history th,
+    .history td {
+      padding: 8px 10px;
+      border-bottom: 1px solid #edf1f7;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .history th {
+      color: var(--muted);
+      font-weight: 700;
+      background: #fbfcfe;
+      white-space: nowrap;
+    }
+
+    .history td {
+      max-width: 210px;
+      word-break: break-word;
+    }
+
+    .history-empty {
+      padding: 12px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    @media (max-width: 820px) {
+      body {
+        height: auto;
+        min-height: 100vh;
+        overflow: auto;
+      }
+
+      main {
+        width: min(100% - 20px, 700px);
+        height: auto;
+        min-height: 100vh;
+        padding: 12px 0 20px;
+      }
+
+      .layout {
+        grid-template-columns: 1fr;
+        min-height: auto;
+      }
+
+      .panel,
+      .viewer {
+        max-height: 72vh;
+      }
+
+      .modal-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .graph-toolbar,
+      .modal-heading {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+
+    main {width:calc(100vw - 24px);max-width:1800px;}
+    .layout {grid-template-columns:280px minmax(300px,1fr) minmax(300px,1fr);grid-template-rows:minmax(260px,46%) minmax(0,1fr);gap:12px;overflow:auto;}
+    .common-settings {grid-column:1;grid-row:1 / 3;}
+    .model-settings {overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;}
+    .model-settings h2,.common-settings h2 {font-size:18px;margin:0 0 14px;}
+    .viewer {grid-column:2 / 4;grid-row:2;}
+    #motion {height:440px;}
+    @media(max-width:1000px){body{height:100vh;overflow:hidden;}main{height:100vh;min-height:0;}.layout{grid-template-columns:220px minmax(280px,1fr) minmax(280px,1fr);grid-template-rows:minmax(260px,46%) minmax(0,1fr);}.panel,.viewer{max-height:none;}.modal-layout{grid-template-columns:1fr;}}
+
+    .viewer {display:flex;flex-direction:column;overflow:hidden;padding:10px;}
+    .viewer-navigation {display:flex;align-items:center;justify-content:space-between;gap:8px;flex:0 0 auto;margin-bottom:8px;}
+    .viewer-navigation [role="tablist"] {display:flex;gap:5px;flex-wrap:wrap;}
+    .viewer-navigation button {font-size:12px;padding:5px 10px;min-height:32px;}
+    .viewer-navigation [aria-selected="true"] {background:var(--accent);color:white;border-color:var(--accent);}
+    .viewer-navigation button:focus-visible {outline:3px solid #93c5fd;outline-offset:2px;}
+    .viewer-screen {flex:1 1 0;min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:5px;}
+    .viewer-screen[hidden] {display:none!important;}
+    .viewer-screen canvas,#motion,#graph,#modeShape,#accGraph {flex:1 1 0;min-height:0;height:0!important;max-height:100%;}
+    .viewer-screen .hint {margin:0;font-size:11px;}
+    .viewer-screen .graph-toolbar,.viewer-screen .modal-heading {margin:0;}
+    .viewer-screen p {margin:0;}
+    .viewer-screen .field {margin-bottom:0;flex:0 0 auto;}
+    .viewer-screen .modal-analysis {display:flex;flex-direction:column;flex:1 1 0;min-height:0;margin:0;padding:8px;overflow:hidden;}
+    .viewer-screen .modal-layout {flex:1 1 0;min-height:0;grid-template-columns:minmax(180px,0.7fr) minmax(0,1.3fr);}
+    .viewer-screen .modal-table-wrap {min-height:0;}
+    .viewer-screen .equation {margin:4px 0;padding:4px;}
+    .viewer-screen .modal-note {font-size:10px;}
+    .viewer-screen .history {display:flex;flex-direction:column;flex:1;min-height:0;margin:0;}
+    .viewer-screen .history-table-wrap {overflow:auto;min-height:0;}
+    #screen-summary {overflow:auto;}
+    .layout {grid-template-rows:minmax(230px,38%) minmax(0,1fr);}
+    .layout.viewer-expanded {grid-template-rows:minmax(0,1fr);}
+    .layout.viewer-expanded .model-settings {display:none;}
+    .layout.viewer-expanded .common-settings {grid-row:1;}
+    .layout.viewer-expanded .viewer {grid-row:1;}
+
+    .comparison-table-wrap {min-width:0;}
+    .comparison-table {width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums;}
+    .comparison-table caption {text-align:left;font-size:16px;font-weight:700;padding:8px 0;}
+    .comparison-table th,.comparison-table td {text-align:left;padding:9px 10px;border:1px solid var(--line);overflow-wrap:anywhere;}
+    .comparison-table thead {background:#eef5ff;}
+    .comparison-table tbody th {background:#f8fafc;}
+    .comparison-table td {white-space:pre-line;}
+    #comparisonInterpretation {margin:8px 0;}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>地震動の可視化 — A・B独立設定</h1>
+
+    <div class="layout">
+      <section class="panel common-settings" aria-label="共通設定"><h2>共通設定</h2><p class="hint">地震入力・計算時間刻み・再生・表示倍率はA/B共通。加速度はgal、時間は秒(s)固定です。</p>
+        <div class="field">
+          <label for="folderInput">データフォルダ</label>
+          <input id="folderInput" type="file" webkitdirectory multiple accept=".csv,.tsv,.txt,.xlsx,.xls">
+        </div>
+
+        <div class="field">
+          <label for="networkSelect">データ種類</label>
+          <select id="networkSelect" disabled>
+            <option value="knet">K-NETのみ使用</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="stationGroupSelect">観測点グループ</label>
+          <select id="stationGroupSelect" disabled>
+            <option value="">フォルダを選択してください</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="dataFileSelect">フォルダ内の観測点ファイル</label>
+          <select id="dataFileSelect" disabled>
+            <option>フォルダを選択してください</option>
+          </select>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="timeColumn">時刻列（秒 s 固定）</label>
+            <select id="timeColumn"></select>
+          </div>
+          <div class="field">
+            <label for="accColumn">加速度列</label>
+            <select id="accColumn"></select>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="accUnit">加速度単位</label>
+            <select id="accUnit" disabled aria-label="加速度単位 gal 固定"><option value="gal">gal（cm/s²）固定</option></select>
+          </div>
+          <div class="field">
+            <label for="timeStep">計算時間刻み dt [s]</label>
+            <input id="timeStep" type="number" min="0.001" step="0.001" value="0.01">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="speed">再生速度</label>
+            <input id="speed" type="range" min="0.25" max="8" step="0.25" value="1" list="speedMarks">
+            <datalist id="speedMarks">
+              <option value="1" label="等速"></option>
+            </datalist>
+            <div class="range-readout">
+              <span>現在: <span id="speedValue">1.00倍</span></span>
+              <span>等速: 1.00倍</span>
+            </div>
+          </div>
+          <div class="field">
+            <label for="zoom">変位表示倍率</label>
+            <input id="zoom" type="range" min="0.5" max="80" step="0.5" value="1" list="zoomMarks">
+            <datalist id="zoomMarks">
+              <option value="1" label="実際目安"></option>
+            </datalist>
+            <div class="range-readout">
+              <span>現在: <span id="zoomValue">1.0倍</span></span>
+              <span>実際目安: 1.0倍</span>
+            </div>
+          </div>
+        </div>
+
+
+<div class="field">
+          <label for="collapseToggle">限界超過時の崩壊演出</label>
+          <button id="collapseToggle" type="button" aria-pressed="true">崩壊演出あり</button>
+        </div>
+
+        <div class="buttons">
+          <button class="primary" id="startButton">スタート</button>
+          <button id="pauseButton">一時停止</button>
+          <button id="resetButton">リセット</button>
+        </div>
+
+        <div class="timebar" aria-label="時間操作">
+          <span id="currentTimeLabel">0.00 s</span>
+          <input id="timeSlider" type="range" min="0" max="0" step="0.01" value="0">
+          <span id="durationLabel">0.00 s</span>
+        </div>
+
+        <div id="status" class="status">K-NETのデータフォルダを選ぶと、観測点を指定して実地震動を入力できます。未選択時はサンプル波を表示します。</div>
+        <div class="hint">
+          K-NET CSVの `#Time,RelativeTime(s),...` 形式に対応しています。K-NET以外のファイルは自動的に除外されます。<br>
+          `20240101160813` のような親フォルダを選ぶと、中のK-NET観測点を自動判定して選択できます。<br>
+          Excel読み込みにはインターネット接続、またはSheetJSのローカル配置が必要です。CSVはこのHTMLだけで読めます。
+        </div>
+      </section>
+
+      <section class="panel model-settings" aria-label="建物Aの設定"><h2>建物A</h2>        <div class="field">
+          <label for="analysisModelSelect">解析モデル</label>
+          <select id="analysisModelSelect">
+            <option value="single">一質点系</option>
+            <option value="multi" selected>多質点系</option>
+          </select>
+        </div>
+
+        <section id="singleParameterSection" class="parameter-section" aria-label="一質点系パラメータ">
+        <div class="row">
+          <div class="field">
+            <label for="omega">固有円振動数 ω [rad/s]</label>
+            <input id="omega" type="number" step="0.001" value="5">
+          </div>
+          <div class="field">
+            <label for="h">減衰定数 h</label>
+            <div class="number-stepper">
+              <button id="hDecreaseButton" class="step-button" type="button" aria-label="減衰定数hを0.01下げる">−</button>
+              <input id="h" type="number" min="0" max="1" step="0.01" value="0.05">
+              <button id="hIncreaseButton" class="step-button" type="button" aria-label="減衰定数hを0.01上げる">＋</button>
+            </div>
+          </div>
+        </div>
+          <p class="parameter-note">一質点系では、減衰係数を c = 2hωm とみなして応答を計算します。</p>
+        </section>
+
+        <section id="multiParameterSection" class="parameter-section" aria-label="多質点系パラメータ">
+          <div class="field">
+            <label for="floorCount">質点数 N</label>
+            <input id="floorCount" type="number" min="1" max="12" step="1" value="5">
+          </div>
+
+          <div class="parameter-row">
+            <div class="field">
+              <label for="massItemSelect">質量</label>
+              <select id="massItemSelect"></select>
+            </div>
+            <div class="field">
+              <label for="massValueInput">選択した m の値</label>
+              <input id="massValueInput" type="number" min="0.000001" step="0.1" value="1">
+            </div>
+          </div>
+
+          <div class="parameter-row">
+            <div class="field">
+              <label for="stiffnessItemSelect">剛性</label>
+              <select id="stiffnessItemSelect"></select>
+            </div>
+            <div class="field">
+              <label for="stiffnessValueInput">選択した k の値</label>
+              <input id="stiffnessValueInput" type="number" min="0" step="0.1" value="25">
+            </div>
+          </div>
+
+          <div class="parameter-row">
+            <div class="field">
+              <label for="dampingItemSelect">層減衰係数</label>
+              <select id="dampingItemSelect"></select>
+            </div>
+            <div class="field">
+              <label for="dampingValueInput">選択した c の値</label>
+              <div class="number-stepper">
+                <button id="dampingDecreaseButton" class="step-button" type="button" aria-label="減衰係数を0.5下げる">−</button>
+                <input id="dampingValueInput" type="number" min="0" step="0.5" value="0.5">
+                <button id="dampingIncreaseButton" class="step-button" type="button" aria-label="減衰係数を0.5上げる">＋</button>
+              </div>
+            </div>
+          </div>
+
+          <p class="parameter-note">
+            k1・c1 は地盤と1質点目の間、k2・c2 は1質点目と2質点目の間です。多質点系では各層の c から減衰行列 C を直接作るため、減衰定数 h は使用しません。<br>
+            フレームの模式表示は、c=0.5では筋交いなし、c=1.0で片筋交い、c=1.5でX型筋交い、c=2.0以上で制振ダンパーが加わります（実際の部材設計を表すものではありません）。
+          </p>
+
+          <div class="field">
+            <button id="resetMatricesButton" class="small-button" type="button">既定値を作成</button>
+          </div>
+        </section>
+
+        <div class="field">
+          <label for="modelSelect">表示モデル</label>
+          <select id="modelSelect">
+            <option value="mass">質点系モデル</option>
+            <option value="house">家モデル</option>
+            <option value="frame">柱梁フレームモデル</option>
+          </select>
+        </div>
+
+        <div class="field"><label for="storyHeights">各層の高さ [m]（下からカンマ区切り）</label><input id="storyHeights" value="3"><p class="hint">1値なら全層共通。複数なら質点数と同じ個数。</p></div><div class="field"><label for="driftLimit">崩壊演出を開始する限界変形角 [rad]</label><input id="driftLimit" type="number" min="0.0001" step="0.001" value="0.01"></div><p class="hint">θᵢ=(xᵢ−xᵢ₋₁)/Hᵢ。青：目安の50%未満、橙：50%以上、赤：100%以上。設定限界に達した層から崩壊演出を開始します。学習用の演出であり、部材の破壊・崩壊後の運動を解析したものではありません。グラフは崩壊後も未損傷の線形モデルの参考応答です。</p><div class="status" id="modelStatusA">Aの設定</div></section>
+      <section class="panel model-settings" aria-label="建物Bの設定"><h2>建物B</h2><button id="copyAToB" type="button">Aの設定をBにコピー</button>        <div class="field">
+          <label for="analysisModelSelectB">解析モデル</label>
+          <select id="analysisModelSelectB">
+            <option value="single">一質点系</option>
+            <option value="multi" selected>多質点系</option>
+          </select>
+        </div>
+
+        <section id="singleParameterSectionB" class="parameter-section" aria-label="B 一質点系パラメータ">
+        <div class="row">
+          <div class="field">
+            <label for="omegaB">固有円振動数 ω [rad/s]</label>
+            <input id="omegaB" type="number" step="0.001" value="5">
+          </div>
+          <div class="field">
+            <label for="hB">減衰定数 h</label>
+            <div class="number-stepper">
+              <button id="hDecreaseButtonB" class="step-button" type="button" aria-label="B 減衰定数hを0.01下げる">−</button>
+              <input id="hB" type="number" min="0" max="1" step="0.01" value="0.05">
+              <button id="hIncreaseButtonB" class="step-button" type="button" aria-label="B 減衰定数hを0.01上げる">＋</button>
+            </div>
+          </div>
+        </div>
+          <p class="parameter-note">一質点系では、減衰係数を c = 2hωm とみなして応答を計算します。</p>
+        </section>
+
+        <section id="multiParameterSectionB" class="parameter-section" aria-label="B 多質点系パラメータ">
+          <div class="field">
+            <label for="floorCountB">質点数 N</label>
+            <input id="floorCountB" type="number" min="1" max="12" step="1" value="5">
+          </div>
+
+          <div class="parameter-row">
+            <div class="field">
+              <label for="massItemSelectB">質量</label>
+              <select id="massItemSelectB"></select>
+            </div>
+            <div class="field">
+              <label for="massValueInputB">選択した m の値</label>
+              <input id="massValueInputB" type="number" min="0.000001" step="0.1" value="1">
+            </div>
+          </div>
+
+          <div class="parameter-row">
+            <div class="field">
+              <label for="stiffnessItemSelectB">剛性</label>
+              <select id="stiffnessItemSelectB"></select>
+            </div>
+            <div class="field">
+              <label for="stiffnessValueInputB">選択した k の値</label>
+              <input id="stiffnessValueInputB" type="number" min="0" step="0.1" value="25">
+            </div>
+          </div>
+
+          <div class="parameter-row">
+            <div class="field">
+              <label for="dampingItemSelectB">層減衰係数</label>
+              <select id="dampingItemSelectB"></select>
+            </div>
+            <div class="field">
+              <label for="dampingValueInputB">選択した c の値</label>
+              <div class="number-stepper">
+                <button id="dampingDecreaseButtonB" class="step-button" type="button" aria-label="B 減衰係数を0.5下げる">−</button>
+                <input id="dampingValueInputB" type="number" min="0" step="0.5" value="0.5">
+                <button id="dampingIncreaseButtonB" class="step-button" type="button" aria-label="B 減衰係数を0.5上げる">＋</button>
+              </div>
+            </div>
+          </div>
+
+          <p class="parameter-note">
+            k1・c1 は地盤と1質点目の間、k2・c2 は1質点目と2質点目の間です。多質点系では各層の c から減衰行列 C を直接作るため、減衰定数 h は使用しません。<br>
+            フレームの模式表示は、c=0.5では筋交いなし、c=1.0で片筋交い、c=1.5でX型筋交い、c=2.0以上で制振ダンパーが加わります（実際の部材設計を表すものではありません）。
+          </p>
+
+          <div class="field">
+            <button id="resetMatricesButtonB" class="small-button" type="button">既定値を作成</button>
+          </div>
+        </section>
+
+        <div class="field">
+          <label for="modelSelectB">表示モデル</label>
+          <select id="modelSelectB">
+            <option value="mass">質点系モデル</option>
+            <option value="house">家モデル</option>
+            <option value="frame">柱梁フレームモデル</option>
+          </select>
+        </div>
+
+        <div class="field"><label for="storyHeightsB">各層の高さ [m]（下からカンマ区切り）</label><input id="storyHeightsB" value="3"><p class="hint">1値なら全層共通。複数なら質点数と同じ個数。</p></div><div class="field"><label for="driftLimitB">崩壊演出を開始する限界変形角 [rad]</label><input id="driftLimitB" type="number" min="0.0001" step="0.001" value="0.01"></div><p class="hint">θᵢ=(xᵢ−xᵢ₋₁)/Hᵢ。青：目安の50%未満、橙：50%以上、赤：100%以上。設定限界に達した層から崩壊演出を開始します。学習用の演出であり、部材の破壊・崩壊後の運動を解析したものではありません。グラフは崩壊後も未損傷の線形モデルの参考応答です。</p><div class="status" id="modelStatusB">Bの設定</div></section>
+<section class="viewer" aria-label="可視化"><div class="viewer-navigation"><div role="tablist" aria-label="表示画面"><button id="tab-motion" role="tab" aria-selected="true" aria-controls="screen-motion" tabindex="0" type="button">モデル</button><button id="tab-response" role="tab" aria-selected="false" aria-controls="screen-response" tabindex="-1" type="button">応答グラフ</button><button id="tab-acceleration" role="tab" aria-selected="false" aria-controls="screen-acceleration" tabindex="-1" type="button">地盤加速度</button><button id="tab-modes" role="tab" aria-selected="false" aria-controls="screen-modes" tabindex="-1" type="button">固有モード</button><button id="tab-history" role="tab" aria-selected="false" aria-controls="screen-history" tabindex="-1" type="button">実行履歴</button><button id="tab-summary" role="tab" aria-selected="false" aria-controls="screen-summary" tabindex="-1" type="button">比較結果</button></div><button id="expandViewer" type="button" aria-pressed="false">表示を広げる</button></div><section id="screen-motion" class="viewer-screen" role="tabpanel" aria-labelledby="tab-motion" ><canvas id="motion" width="700" height="420" role="img" aria-label="地震時の構造モデルと左右変位グリッド"></canvas>
+        </section>
+<section id="screen-response" class="viewer-screen" role="tabpanel" aria-labelledby="tab-response" hidden><div class="graph-toolbar">
+          <strong>時刻歴応答変位</strong>
+          <div class="inline-control">
+            <label for="responseGraphMode">表示系列</label>
+            <select id="responseGraphMode">
+              <option value="all" selected>全階</option>
+              <option value="top">最上階のみ</option>
+            </select>
+          </div>
+        </div>
+        <div id="responseLegend" class="response-legend" aria-label="応答グラフの凡例"></div>
+        <p class="hint">実線：A、破線：B（階の色は共通）。縦線は現在時刻と崩壊開始。崩壊後の曲線は未損傷の線形モデルによる参考応答です。同じ時刻・縮尺で比較。変位は地盤に対する相対変位です。アニメーションは線形縮尺で、範囲外では表示倍率を下げてください。</p><canvas id="graph" width="700" height="300" role="img" aria-label="各階の時刻歴応答変位グラフ"></canvas>
+
+        </section>
+<section id="screen-acceleration" class="viewer-screen" role="tabpanel" aria-labelledby="tab-acceleration" hidden><p><strong>入力地盤加速度 [gal]</strong></p><canvas id="accGraph" width="700" height="200" style="height:200px" aria-label="入力地盤加速度と現在時刻"></canvas></section>
+<section id="screen-modes" class="viewer-screen" role="tabpanel" aria-labelledby="tab-modes" hidden><div class="field"><label for="modalBuilding">固有値・固有モードを確認する建物</label><select id="modalBuilding"><option value="A">建物A</option><option value="B">建物B</option></select></div><section class="modal-analysis" aria-label="固有値・固有モード解析">
+          <div class="modal-heading">
+            <h2>固有値・固有モード</h2>
+            <div class="inline-control">
+              <label for="modeShapeSelect">表示モード</label>
+              <select id="modeShapeSelect"></select>
+            </div>
+          </div>
+          <div class="equation">一般化固有値問題: Kφ = λMφ　　ω = √λ　　T = 2π/ω</div>
+          <div class="modal-layout">
+            <canvas id="modeShape" width="320" height="300" role="img" aria-label="選択した固有モード形"></canvas>
+            <div class="modal-table-wrap">
+              <table class="modal-table">
+                <thead>
+                  <tr>
+                    <th>Mode</th>
+                    <th>λ [1/s²]</th>
+                    <th>ω [rad/s]</th>
+                    <th>f [Hz]</th>
+                    <th>T [s]</th>
+                    <th>h [%]</th>
+                    <th>φ（最大成分=1）</th>
+                  </tr>
+                </thead>
+                <tbody id="modalTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <p id="modalSummary" class="modal-note" aria-live="polite"></p>
+        </section>
+
+        </section>
+<section id="screen-history" class="viewer-screen" role="tabpanel" aria-labelledby="tab-history" hidden><section class="history" aria-label="再生履歴">
+          <h2>再生履歴</h2>
+          <div id="historyEmpty" class="history-empty">まだ履歴はありません。</div>
+          <div class="history-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>データ種類</th>
+                  <th>観測点グループ</th>
+                  <th>観測点ファイル</th>
+                  <th>解析モデル</th>
+                  <th>表示モデル</th>
+                  <th>減衰</th>
+                  <th>Aの目安初回超過</th>
+                </tr>
+              </thead>
+              <tbody id="historyBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+<section id="screen-summary" class="viewer-screen" role="tabpanel" aria-labelledby="tab-summary" hidden><div id="comparisonSummary" class="status" aria-live="polite"></div><div id="comparisonTableWrap" class="comparison-table-wrap"><table class="comparison-table"><caption>A・Bの数値比較</caption><thead><tr><th scope="col">比較項目</th><th scope="col">建物A</th><th scope="col">建物B</th><th scope="col">BのAに対する変化</th></tr></thead><tbody><tr><th scope="row">最大相対変位 [cm]</th><td id="compare-displacement-a"></td><td id="compare-displacement-b"></td><td id="compare-displacement-diff"></td></tr><tr><th scope="row">最大層間変形角 [rad]</th><td id="compare-angle-a"></td><td id="compare-angle-b"></td><td id="compare-angle-diff"></td></tr><tr><th scope="row">限界到達時刻 [s]</th><td id="compare-arrival-a"></td><td id="compare-arrival-b"></td><td id="compare-arrival-diff"></td></tr><tr><th scope="row">設定した限界変形角 [rad]</th><td id="compare-threshold-a"></td><td id="compare-threshold-b"></td><td id="compare-threshold-diff"></td></tr></tbody></table><p id="comparisonInterpretation" class="status" aria-live="polite"></p><p class="hint">最大値は入力記録全体・全階の絶対値から算出（再生途中でも全記録の結果）。括弧内は該当する階／層と時刻です。崩壊後も未損傷の線形モデルの参考応答を含みます。限界到達時刻は各モデルに設定した限界への初回到達で、計算点間を線形補間しています。変化率＝(B−A)/A×100%。限界到達の遅さだけで安全性を判定することはできません。</p></div></section></section>
+    </div>
+  </main>
+
+  <script>
+    const motionCanvas = document.getElementById("motion");
+    const graphCanvas = document.getElementById("graph");
+    const modeShapeCanvas = document.getElementById("modeShape");
+    const m = motionCanvas.getContext("2d");
+    const g = graphCanvas.getContext("2d");
+    const modeContext = modeShapeCanvas.getContext("2d");
+
+    const folderInput = document.getElementById("folderInput");
+    const networkSelect = document.getElementById("networkSelect");
+    const stationGroupSelect = document.getElementById("stationGroupSelect");
+    const dataFileSelect = document.getElementById("dataFileSelect");
+    const timeColumn = document.getElementById("timeColumn");
+    const accColumn = document.getElementById("accColumn");
+    const accUnit = document.getElementById("accUnit");
+    const timeStep = document.getElementById("timeStep");
+    const analysisModelSelect = document.getElementById("analysisModelSelect");
+    const omegaInput = document.getElementById("omega");
+    const hInput = document.getElementById("h");
+    const hDecreaseButton = document.getElementById("hDecreaseButton");
+    const hIncreaseButton = document.getElementById("hIncreaseButton");
+    const singleParameterSection = document.getElementById("singleParameterSection");
+    const multiParameterSection = document.getElementById("multiParameterSection");
+    const floorCountInput = document.getElementById("floorCount");
+    const massItemSelect = document.getElementById("massItemSelect");
+    const massValueInput = document.getElementById("massValueInput");
+    const stiffnessItemSelect = document.getElementById("stiffnessItemSelect");
+    const stiffnessValueInput = document.getElementById("stiffnessValueInput");
+    const dampingItemSelect = document.getElementById("dampingItemSelect");
+    const dampingValueInput = document.getElementById("dampingValueInput");
+    const dampingDecreaseButton = document.getElementById("dampingDecreaseButton");
+    const dampingIncreaseButton = document.getElementById("dampingIncreaseButton");
+    const resetMatricesButton = document.getElementById("resetMatricesButton");
+    const speedInput = document.getElementById("speed");
+    const zoomInput = document.getElementById("zoom");
+    const speedValue = document.getElementById("speedValue");
+    const zoomValue = document.getElementById("zoomValue");
+    const modelSelect = document.getElementById("modelSelect");
+    const collapseToggle = document.getElementById("collapseToggle");
+    const timeSlider = document.getElementById("timeSlider");
+    const currentTimeLabel = document.getElementById("currentTimeLabel");
+    const durationLabel = document.getElementById("durationLabel");
+    const historyBody = document.getElementById("historyBody");
+    const historyEmpty = document.getElementById("historyEmpty");
+    const statusBox = document.getElementById("status");
+    const responseGraphMode = document.getElementById("responseGraphMode");
+    const responseLegend = document.getElementById("responseLegend");
+    const modeShapeSelect = document.getElementById("modeShapeSelect");
+    const modalTableBody = document.getElementById("modalTableBody");
+    const modalSummary = document.getElementById("modalSummary");
+
+    let rows = [];
+    let headers = [];
+    let folderFiles = [];
+    let visibleFolderFileIndexes = [];
+    let columnOffsets = {};
+    let currentSourceLabel = "サンプル波";
+    let inputMotion = makeSampleMotion();
+    let response = [];
+    let responseB = [];
+    let comparisonError = "";
+    let t = 0;
+    let running = false;
+    let collapseEnabled = true;
+    let runHistoryCount = 0;
+    let lastFrameTime = null;
+    let matrixError = "";
+    let massValues = [];
+    let stiffnessValues = [];
+    let dampingValues = [];
+    let collapseEventCache;
+    let modalAnalysis = { modes: [], size: 0 };
+
+    const responseSeriesColors = [
+      "#2563eb", "#dc2626", "#059669", "#9333ea", "#ea580c", "#0891b2",
+      "#4f46e5", "#be123c", "#65a30d", "#7c3aed", "#b45309", "#0f766e"
+    ];
+
+    function syncCanvasResolution(canvas) {
+      const rect = canvas.getBoundingClientRect();
+      if(rect.width<=0||rect.height<=0)return;
+      const width = Math.max(240, Math.round(rect.width));
+      const height = Math.max(180, Math.round(rect.height));
+      if (canvas.width !== width) canvas.width = width;
+      if (canvas.height !== height) canvas.height = height;
+    }
+
+    function syncCanvasResolutions() {
+      syncCanvasResolution(motionCanvas);
+      syncCanvasResolution(graphCanvas);
+      syncCanvasResolution(modeShapeCanvas);
+    }
+
+    const canvasResizeObserver = "ResizeObserver" in window
+      ? new ResizeObserver(syncCanvasResolutions)
+      : null;
+    canvasResizeObserver?.observe(motionCanvas);
+    canvasResizeObserver?.observe(graphCanvas);
+    canvasResizeObserver?.observe(modeShapeCanvas);
+    window.addEventListener("resize", syncCanvasResolutions);
+
+    function numberValue(el, fallback) {
+      const value = Number.parseFloat(el.value);
+      return Number.isFinite(value) ? value : fallback;
+    }
+
+    function setStatus(message, isError = false) {
+      statusBox.textContent = message;
+      statusBox.classList.toggle("error", isError);
+    }
+
+    function syncRangeReadouts() {
+      speedValue.textContent = `${numberValue(speedInput, 1).toFixed(2)}倍`;
+      zoomValue.textContent = `${numberValue(zoomInput, 1).toFixed(1)}倍`;
+    }
+
+    function inputEndTime() {
+      return response.length ? response[response.length - 1].time : 0;
+    }
+
+    function endTime() {
+      const finish=inputEndTime();
+      if(!collapseEnabled)return finish;
+      return Math.max(finish,collapseA?collapseA.time+2:0,collapseB?collapseB.time+2:0);
+    }
+    function formatSeconds(seconds) {
+      return `${seconds.toFixed(2)} s`;
+    }
+
+    function syncTimeControls() {
+      const duration = endTime();
+      t = Math.min(t, duration);
+      timeSlider.max = String(Math.max(0, duration));
+      timeSlider.value = String(Math.min(t, duration));
+      currentTimeLabel.textContent = formatSeconds(t);
+      durationLabel.textContent = formatSeconds(duration);
+    }
+
+    function setPlaybackTime(value) {
+      const duration = endTime();
+      const nextTime = Number.parseFloat(value);
+      t = Math.min(duration, Math.max(0, Number.isFinite(nextTime) ? nextTime : 0));
+      syncTimeControls();
+    }
+
+    function selectedOptionText(selectElement, fallback = "-") {
+      return selectElement.selectedOptions[0]?.textContent || fallback;
+    }
+
+    function modelLabel() {
+      return selectedOptionText(modelSelect, "質点系モデル");
+    }
+
+    function analysisLabel() {
+      return selectedOptionText(analysisModelSelect, "多質点系");
+    }
+
+    function predictedCollapseTime() {
+      if (!collapseEnabled) return "目安表示なし";
+      const event = findCollapseEvent();
+      return event ? `${event.time.toFixed(2)} s` : "なし";
+    }
+
+    function addRunHistory() {
+      runHistoryCount += 1;
+      historyEmpty.style.display = "none";
+
+      const row = document.createElement("tr");
+      [
+        String(runHistoryCount),
+        selectedOptionText(networkSelect),
+        selectedOptionText(stationGroupSelect),
+        selectedOptionText(dataFileSelect),
+        analysisLabel(),
+        analysisModelSelect.value === "multi" ? `${modelLabel()}（N=${floorCount()}）` : modelLabel(),
+        analysisModelSelect.value === "multi"
+          ? `c1=${formatParameter(dampingValues[0] || 0)} ほか`
+          : `h=${numberValue(hInput, 0.05).toFixed(3)}`,
+        predictedCollapseTime() + " ／ B: " + document.getElementById("analysisModelSelectB").selectedOptions[0]?.textContent
+      ].forEach(value => {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        row.append(cell);
+      });
+      row.title=JSON.stringify({A:{model:analysisModelSelect.value,m:massValues,k:stiffnessValues,c:dampingValues,height:document.getElementById("storyHeights").value},B:{model:document.getElementById("analysisModelSelectB").value,m:massesB,k:stiffnessesB,c:dampingsB,height:document.getElementById("storyHeightsB").value}});
+      historyBody.prepend(row);
+    }
+
+    function makeSampleMotion() {
+      const dt = 0.01;
+      const points = [];
+      for (let i = 0; i <= 2000; i++) {
+        const time = i * dt;
+        const envelope = Math.exp(-0.18 * time) * Math.min(1, time / 1.5);
+        const acc = 120 * envelope * (
+          Math.sin(2 * Math.PI * 1.2 * time) +
+          0.55 * Math.sin(2 * Math.PI * 2.7 * time + 0.8)
+        );
+        points.push({ time, acc });
+      }
+      return points;
+    }
+
+    function splitDelimitedLine(line, delimiter) {
+      const cells = [];
+      let current = "";
+      let quoted = false;
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        const next = line[i + 1];
+        if (char === "\"" && quoted && next === "\"") {
+          current += "\"";
+          i += 1;
+        } else if (char === "\"") {
+          quoted = !quoted;
+        } else if (char === delimiter && !quoted) {
+          cells.push(current.trim());
+          current = "";
+        } else {
+          current += char;
+        }
+      }
+      cells.push(current.trim());
+      return cells;
+    }
+
+    function detectDelimiter(line) {
+      const candidates = [",", "\t", ";"];
+      return candidates
+        .map(delimiter => ({ delimiter, count: line.split(delimiter).length }))
+        .sort((a, b) => b.count - a.count)[0].delimiter;
+    }
+
+    function parseDelimited(text) {
+      columnOffsets = {};
+      const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+      if (lines.length < 2) return [];
+
+      const knetHeaderIndex = lines.findIndex(line => /^#\s*Time\s*[,;\t]\s*RelativeTime\(s\)/i.test(line));
+      if (knetHeaderIndex >= 0) {
+        const headerLine = lines[knetHeaderIndex].replace(/^#\s*/, "");
+        const delimiter = detectDelimiter(headerLine);
+        const offsetIndex = lines.findIndex(line => /^#\s*Offset\s*$/i.test(line));
+        if (offsetIndex >= 0 && lines[offsetIndex + 1] && lines[offsetIndex + 2]) {
+          const offsetHeaderLine = lines[offsetIndex + 1].replace(/^#\s*/, "");
+          const offsetHeaders = splitDelimitedLine(offsetHeaderLine, detectDelimiter(offsetHeaderLine));
+          const offsetValues = splitDelimitedLine(lines[offsetIndex + 2].replace(/^#\s*/, ""), detectDelimiter(lines[offsetIndex + 2]));
+          offsetHeaders.forEach((header, index) => {
+            const value = parseNumberCell(offsetValues[index]);
+            if (Number.isFinite(value)) columnOffsets[header] = value;
+          });
+        }
+        const table = [splitDelimitedLine(headerLine, delimiter)];
+        for (const line of lines.slice(knetHeaderIndex + 1)) {
+          if (line.startsWith("#")) continue;
+          table.push(splitDelimitedLine(line, delimiter));
+        }
+        return table;
+      }
+
+      const firstTableLine = lines.find(line => !line.startsWith("#")) || lines[0].replace(/^#\s*/, "");
+      const delimiter = detectDelimiter(firstTableLine);
+      return lines
+        .filter(line => !line.startsWith("#") || /^#\s*(time|時刻|relative)/i.test(line))
+        .map(line => splitDelimitedLine(line.replace(/^#\s*/, ""), delimiter));
+    }
+
+    function populateColumns(table, sourceLabel = currentSourceLabel) {
+      if (!table || table.length < 2) {
+        setStatus("有効な表データを読み取れませんでした。", true);
+        return;
+      }
+
+      rows = table;
+      headers = table[0].map((value, index) => String(value || `列${index + 1}`));
+      timeColumn.innerHTML = "";
+      accColumn.innerHTML = "";
+
+      headers.forEach((header, index) => {
+        timeColumn.append(new Option(header, String(index)));
+        accColumn.append(new Option(header, String(index)));
+      });
+
+      const relativeTimeGuess = headers.findIndex(h => /relative\s*time|relativetime|相対.*時|経過.*時/i.test(h));
+      const timeGuess = relativeTimeGuess >= 0
+        ? relativeTimeGuess
+        : headers.findIndex(h => /time|時刻|秒|sec/i.test(h));
+      const accGuess = headers.findIndex(h => /acc|加速度|gal|cm\/s|m\/s|^n-s|^e-w|^u-d|^[1-6]\(gal\)$/i.test(h));
+      timeColumn.value = String(timeGuess >= 0 ? timeGuess : 0);
+      accColumn.value = String(accGuess >= 0 ? accGuess : Math.min(1, headers.length - 1));
+      updateMotionFromRows(sourceLabel);
+    }
+
+    function parseNumberCell(value) {
+      const text = String(value ?? "").trim().replace(/,/g, "");
+      if (!text) return NaN;
+      return /^[-+]?\d*\.?\d+(?:e[-+]?\d+)?$/i.test(text) ? Number.parseFloat(text) : NaN;
+    }
+
+    function parseTimeCell(value) {
+      const numeric = parseNumberCell(value);
+      if (Number.isFinite(numeric)) return numeric;
+
+      const text = String(value ?? "").trim();
+      const normalized = text.replace(/\//g, "-").replace(" ", "T");
+      const timestamp = Date.parse(normalized);
+      return Number.isFinite(timestamp) ? timestamp / 1000 : NaN;
+    }
+
+    function estimateBaseline(points) {
+      if (!points.length) return 0;
+      const sorted = [...points].sort((a, b) => a.time - b.time);
+      const startTime = sorted[0].time;
+      const firstSecond = sorted.filter(point => point.time <= startTime + 1);
+      const sample = firstSecond.length >= 10 ? firstSecond : sorted.slice(0, Math.min(100, sorted.length));
+      const sum = sample.reduce((total, point) => total + point.acc, 0);
+      return sample.length ? sum / sample.length : 0;
+    }
+
+    function updateMotionFromRows(sourceLabel = currentSourceLabel) {
+      if (rows.length < 2) return;
+
+      const timeIndex = Number.parseInt(timeColumn.value, 10);
+      const accIndex = Number.parseInt(accColumn.value, 10);
+      const unitScale = 0.01; // 入力はgal固定。計算内部だけSIへ変換。
+      const dtFallback = Math.max(0.001, numberValue(timeStep, 0.01));
+      const headerName = headers[accIndex];
+      const headerOffset = parseNumberCell(columnOffsets[headerName]);
+
+      const rawPoints = [];
+      for (const row of rows.slice(1)) {
+        const rawTime = parseTimeCell(row[timeIndex]);
+        const rawAcc = parseNumberCell(row[accIndex]);
+        if (Number.isFinite(rawAcc)) {
+          const time = Number.isFinite(rawTime) ? rawTime : rawPoints.length * dtFallback;
+          rawPoints.push({ time, acc: rawAcc * unitScale });
+        }
+      }
+
+      if (rawPoints.length < 2) {
+        setStatus("時刻列と加速度列から有効な数値データを読み取れませんでした。", true);
+        return;
+      }
+
+      const baseline = Number.isFinite(headerOffset)
+        ? headerOffset * unitScale
+        : estimateBaseline(rawPoints);
+      const minTime = Math.min(...rawPoints.map(point => point.time));
+      const normalizeTime = minTime > 1000000 ? minTime : 0;
+      const points = rawPoints.map(point => ({
+        time: point.time - normalizeTime,
+        acc: point.acc - baseline
+      }));
+
+      points.sort((a, b) => a.time - b.time);
+
+      if (points.length < 2) {
+        setStatus("時刻列と加速度列から有効な数値データを読み取れませんでした。", true);
+        return;
+      }
+
+      inputMotion = points;
+      t = 0;
+      running = false;
+      computeResponse();
+      syncTimeControls();
+      currentSourceLabel = sourceLabel;
+      const dtEstimate = points[1].time - points[0].time;
+      const baselineSource = Number.isFinite(headerOffset) ? "#Offset" : "先頭データ平均";
+      setStatus(`${sourceLabel}: ${points.length}点を読み込みました。dt=${dtEstimate.toFixed(4)}s、加速度列は ${accUnit.options[accUnit.selectedIndex].text} として扱います。${baselineSource}で基線補正 ${(baseline * 100).toFixed(3)} gal を差し引きました。`);
+    }
+
+    async function readFile(file) {
+      currentSourceLabel = file.webkitRelativePath || file.name;
+      columnOffsets = {};
+      const name = file.name.toLowerCase();
+      if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+        if (!window.XLSX) {
+          setStatus("Excelを読むライブラリを読み込めませんでした。CSV形式で保存してから読み込んでください。", true);
+          return;
+        }
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const table = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, blankrows: false });
+        populateColumns(table.filter(row => row.length), currentSourceLabel);
+        return;
+      }
+
+      const text = await file.text();
+      populateColumns(parseDelimited(text), currentSourceLabel);
+    }
+
+    async function loadSelectedFolderFile() {
+      const file = folderFiles[Number.parseInt(dataFileSelect.value, 10)];
+      if (!file) return;
+      try {
+        await readFile(file);
+      } catch (error) {
+        setStatus(`読み込みに失敗しました: ${error.message}`, true);
+      }
+    }
+
+    function filePath(file) {
+      return file.webkitRelativePath || file.name;
+    }
+
+    function networkFromFile(file) {
+      const path = filePath(file);
+      if (/(?:^|\/)kik(?:-net)?(?:\/|$)/i.test(path)) return "kik";
+      if (/(?:^|\/)k-?net(?:\/|$)/i.test(path)) return "knet";
+      return "other";
+    }
+
+    function networkLabel(value) {
+      if (value === "kik") return "KiK-net";
+      if (value === "knet") return "K-NET";
+      if (value === "other") return "その他";
+      return "K-NET";
+    }
+
+    function selectedNetworkFiles() {
+      return folderFiles
+        .map((file, index) => ({ file, index }))
+        .filter(({ file }) => networkFromFile(file) === "knet");
+    }
+
+    function stationCodeFromFile(file) {
+      const baseName = file.name.replace(/\.[^.]+$/, "");
+      return baseName.replace(/\d{10}$/, "");
+    }
+
+    function stationGroupFromCode(code) {
+      if (/^[A-Z]{3}H/i.test(code)) return code.slice(0, 4).toUpperCase();
+      const match = code.match(/^[A-Z]+/i);
+      return match ? match[0].toUpperCase() : code.toUpperCase();
+    }
+
+    function stationLabel(file) {
+      const code = stationCodeFromFile(file);
+      const path = filePath(file);
+      const network = networkLabel(networkFromFile(file));
+      return `${code} (${network}) - ${path}`;
+    }
+
+    function populateNetworks() {
+      const knetCount = selectedNetworkFiles().length;
+      networkSelect.innerHTML = "";
+      networkSelect.append(new Option(`K-NETのみ使用 (${knetCount}件)`, "knet"));
+      networkSelect.value = "knet";
+      networkSelect.disabled = true;
+    }
+
+    function populateStationGroups() {
+      const groups = new Map();
+      const candidates = selectedNetworkFiles();
+      for (const { file } of candidates) {
+        const group = stationGroupFromCode(stationCodeFromFile(file));
+        groups.set(group, (groups.get(group) || 0) + 1);
+      }
+
+      stationGroupSelect.innerHTML = "";
+      if (!candidates.length) {
+        stationGroupSelect.append(new Option("K-NETファイルがありません", ""));
+        stationGroupSelect.disabled = true;
+        return;
+      }
+
+      stationGroupSelect.append(new Option(`すべて (${candidates.length}件)`, ""));
+      [...groups.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .forEach(([group, count]) => {
+          stationGroupSelect.append(new Option(`${group} (${count}件)`, group));
+        });
+
+      stationGroupSelect.disabled = false;
+
+      if (groups.has("ABSH")) {
+        stationGroupSelect.value = "ABSH";
+      } else if (groups.has("AICH")) {
+        stationGroupSelect.value = "AICH";
+      }
+    }
+
+    function renderFolderFileOptions() {
+      const selectedGroup = stationGroupSelect.value;
+      visibleFolderFileIndexes = selectedNetworkFiles()
+        .filter(({ file }) => {
+          if (!selectedGroup) return true;
+          return stationGroupFromCode(stationCodeFromFile(file)) === selectedGroup;
+        })
+        .map(({ index }) => index);
+
+      dataFileSelect.innerHTML = "";
+      if (!visibleFolderFileIndexes.length) {
+        dataFileSelect.disabled = true;
+        dataFileSelect.append(new Option("K-NET観測点ファイルがありません", ""));
+        setStatus("選択したフォルダにK-NETの観測点ファイルがありません。", true);
+        return false;
+      }
+
+      for (const index of visibleFolderFileIndexes) {
+        const file = folderFiles[index];
+        dataFileSelect.append(new Option(stationLabel(file), String(index)));
+      }
+
+      dataFileSelect.disabled = false;
+      dataFileSelect.value = String(visibleFolderFileIndexes[0]);
+
+      const label = selectedGroup || "すべて";
+      setStatus(`K-NET / ${label}: ${visibleFolderFileIndexes.length}件の観測点ファイルから選択できます。`);
+      return true;
+    }
+
+    function interpolateAcc(time) {
+      const data = inputMotion;
+      if (time <= data[0].time) return data[0].acc;
+      if (time >= data[data.length - 1].time) return 0;
+
+      let lo = 0;
+      let hi = data.length - 1;
+      while (hi - lo > 1) {
+        const mid = Math.floor((lo + hi) / 2);
+        if (data[mid].time <= time) lo = mid;
+        else hi = mid;
+      }
+
+      const a = data[lo];
+      const b = data[hi];
+      const r = (time - a.time) / (b.time - a.time || 1);
+      return a.acc + (b.acc - a.acc) * r;
+    }
+
+    function floorCount() {
+      if (analysisModelSelect.value !== "multi") return 1;
+      const value = Math.round(numberValue(floorCountInput, 5));
+      return Math.min(12, Math.max(1, value));
+    }
+
+    function vectorZeros(count) {
+      return Array.from({ length: count }, () => 0);
+    }
+
+    function addVectors(a, b, scale = 1) {
+      return a.map((value, index) => value + b[index] * scale);
+    }
+
+    function multiplyMatrixVector(matrix, vector) {
+      return matrix.map(row => row.reduce((total, value, index) => total + value * vector[index], 0));
+    }
+
+    function solveLinearSystem(matrix, vector) {
+      const n = matrix.length;
+      const a = matrix.map((row, index) => [...row, vector[index]]);
+      for (let col = 0; col < n; col++) {
+        let pivot = col;
+        for (let row = col + 1; row < n; row++) {
+          if (Math.abs(a[row][col]) > Math.abs(a[pivot][col])) pivot = row;
+        }
+        if (Math.abs(a[pivot][col]) < 1e-12) {
+          throw new Error("[M] が特異行列のため計算できません。");
+        }
+        [a[col], a[pivot]] = [a[pivot], a[col]];
+        const pivotValue = a[col][col];
+        for (let c = col; c <= n; c++) a[col][c] /= pivotValue;
+        for (let row = 0; row < n; row++) {
+          if (row === col) continue;
+          const factor = a[row][col];
+          for (let c = col; c <= n; c++) a[row][c] -= factor * a[col][c];
+        }
+      }
+      return a.map(row => row[n]);
+    }
+
+    function diagonalMatrix(values) {
+      return values.map((value, rowIndex) => values.map((_, colIndex) => rowIndex === colIndex ? value : 0));
+    }
+
+    function storyMatrix(storyValues) {
+      const n = storyValues.length;
+      const matrix = Array.from({ length: n }, () => vectorZeros(n));
+      for (let i = 0; i < n; i++) {
+        matrix[i][i] += storyValues[i];
+        if (i < n - 1) {
+          matrix[i][i] += storyValues[i + 1];
+          matrix[i][i + 1] -= storyValues[i + 1];
+          matrix[i + 1][i] -= storyValues[i + 1];
+        }
+      }
+      return matrix;
+    }
+
+    function identityMatrix(size) {
+      return Array.from({ length: size }, (_, row) => (
+        Array.from({ length: size }, (_, col) => row === col ? 1 : 0)
+      ));
+    }
+
+    function dotProduct(a, b) {
+      return a.reduce((total, value, index) => total + value * b[index], 0);
+    }
+
+    function vectorNorm(vector) {
+      return Math.sqrt(dotProduct(vector, vector));
+    }
+
+    function quadraticForm(vector, matrix) {
+      return dotProduct(vector, multiplyMatrixVector(matrix, vector));
+    }
+
+    function jacobiSymmetricEigen(matrix) {
+      const n = matrix.length;
+      if (!n || matrix.some(row => row.length !== n)) {
+        throw new Error("固有値解析の対象行列が正方行列ではありません。");
+      }
+
+      const maxEntry = matrix.reduce((max, row) => (
+        row.reduce((rowMax, value) => Math.max(rowMax, Math.abs(value)), max)
+      ), 0);
+      if (maxEntry === 0) {
+        return { values: vectorZeros(n), vectors: identityMatrix(n), residual: 0 };
+      }
+
+      const symmetryTolerance = maxEntry * 1e-10;
+      const a = matrix.map((row, i) => row.map((value, j) => {
+        if (Math.abs(value - matrix[j][i]) > symmetryTolerance) {
+          throw new Error("固有値解析の対象行列が対称ではありません。");
+        }
+        return ((value + matrix[j][i]) / 2) / maxEntry;
+      }));
+      const vectors = identityMatrix(n);
+      const tolerance = 1e-12;
+      const maxIterations = Math.max(1, 100 * n * n);
+      let largestOffDiagonal = 0;
+      let converged = n === 1;
+
+      for (let iteration = 0; iteration < maxIterations && n > 1; iteration++) {
+        let p = 0;
+        let q = 1;
+        largestOffDiagonal = Math.abs(a[p][q]);
+        for (let i = 0; i < n; i++) {
+          for (let j = i + 1; j < n; j++) {
+            const candidate = Math.abs(a[i][j]);
+            if (candidate > largestOffDiagonal) {
+              largestOffDiagonal = candidate;
+              p = i;
+              q = j;
+            }
+          }
+        }
+
+        if (largestOffDiagonal <= tolerance) {
+          converged = true;
+          break;
+        }
+
+        const app = a[p][p];
+        const aqq = a[q][q];
+        const apq = a[p][q];
+        const angle = 0.5 * Math.atan2(2 * apq, aqq - app);
+        const cosine = Math.cos(angle);
+        const sine = Math.sin(angle);
+
+        for (let i = 0; i < n; i++) {
+          if (i === p || i === q) continue;
+          const aip = a[i][p];
+          const aiq = a[i][q];
+          const nextIp = cosine * aip - sine * aiq;
+          const nextIq = sine * aip + cosine * aiq;
+          a[i][p] = nextIp;
+          a[p][i] = nextIp;
+          a[i][q] = nextIq;
+          a[q][i] = nextIq;
+        }
+
+        a[p][p] = cosine * cosine * app - 2 * sine * cosine * apq + sine * sine * aqq;
+        a[q][q] = sine * sine * app + 2 * sine * cosine * apq + cosine * cosine * aqq;
+        a[p][q] = 0;
+        a[q][p] = 0;
+
+        for (let i = 0; i < n; i++) {
+          const vip = vectors[i][p];
+          const viq = vectors[i][q];
+          vectors[i][p] = cosine * vip - sine * viq;
+          vectors[i][q] = sine * vip + cosine * viq;
+        }
+      }
+
+      if (!converged) {
+        throw new Error("Jacobi法が規定回数内に収束しませんでした。");
+      }
+
+      const values = a.map((row, index) => row[index] * maxEntry);
+      return { values, vectors, residual: largestOffDiagonal * maxEntry };
+    }
+
+    function analysisNumber(value, digits = 4) {
+      if (!Number.isFinite(value)) return "—";
+      const absolute = Math.abs(value);
+      if (absolute > 0 && (absolute >= 1e5 || absolute < 1e-4)) {
+        return value.toExponential(3);
+      }
+      return String(Number(value.toFixed(digits)));
+    }
+
+    function formatParameter(value) {
+      if (!Number.isFinite(value)) return "0";
+      return String(Number(value.toFixed(6)));
+    }
+
+    function defaultParameterValues(n) {
+      return {
+        masses: Array.from({ length: n }, () => 1),
+        stiffnesses: Array.from({ length: n }, () => 25),
+        dampings: Array.from({ length: n }, () => 0.5)
+      };
+    }
+
+    function resizeValues(values, defaults) {
+      return defaults.map((fallback, index) => (
+        Number.isFinite(values[index]) ? values[index] : fallback
+      ));
+    }
+
+    function populateParameterSelect(select, prefix, n) {
+      const previousIndex = Math.max(0, Number.parseInt(select.value, 10) || 0);
+      select.innerHTML = "";
+      for (let index = 0; index < n; index++) {
+        select.append(new Option(`${prefix}${index + 1}`, String(index)));
+      }
+      select.value = String(Math.min(previousIndex, n - 1));
+    }
+
+    function syncSelectedParameterInputs() {
+      const massIndex = Math.max(0, Number.parseInt(massItemSelect.value, 10) || 0);
+      const stiffnessIndex = Math.max(0, Number.parseInt(stiffnessItemSelect.value, 10) || 0);
+      const dampingIndex = Math.max(0, Number.parseInt(dampingItemSelect.value, 10) || 0);
+      massValueInput.value = formatParameter(massValues[massIndex] ?? 1);
+      stiffnessValueInput.value = formatParameter(stiffnessValues[stiffnessIndex] ?? 0);
+      dampingValueInput.value = formatParameter(dampingValues[dampingIndex] ?? 0);
+    }
+
+    function syncParameterControls(keepExisting = true) {
+      const n = Math.min(12, Math.max(1, Math.round(numberValue(floorCountInput, 5))));
+      const defaults = defaultParameterValues(n);
+      massValues = keepExisting ? resizeValues(massValues, defaults.masses) : defaults.masses;
+      stiffnessValues = keepExisting ? resizeValues(stiffnessValues, defaults.stiffnesses) : defaults.stiffnesses;
+      dampingValues = keepExisting ? resizeValues(dampingValues, defaults.dampings) : defaults.dampings;
+      floorCountInput.value = String(n);
+      populateParameterSelect(massItemSelect, "m", n);
+      populateParameterSelect(stiffnessItemSelect, "k", n);
+      populateParameterSelect(dampingItemSelect, "c", n);
+      syncSelectedParameterInputs();
+    }
+
+    function resetMatrixInputs() {
+      syncParameterControls(false);
+    }
+
+    function readMatrixInputs(n) {
+      const masses = massValues.slice(0, n);
+      const stiffnesses = stiffnessValues.slice(0, n);
+      const dampings = dampingValues.slice(0, n);
+      if (masses.length !== n || masses.some(value => !Number.isFinite(value) || value <= 0)) {
+        throw new Error("各質点の質量 m は0より大きい値にしてください。");
+      }
+      if (stiffnesses.length !== n || stiffnesses.some(value => !Number.isFinite(value) || value < 0)) {
+        throw new Error("各層の剛性 k は0以上の値にしてください。");
+      }
+      if (dampings.length !== n || dampings.some(value => !Number.isFinite(value) || value < 0)) {
+        throw new Error("各層の減衰 c は0以上の値にしてください。");
+      }
+      return {
+        masses,
+        stiffnesses,
+        dampings,
+        massMatrix: diagonalMatrix(masses),
+        stiffnessMatrix: storyMatrix(stiffnesses),
+        dampingMatrix: storyMatrix(dampings)
+      };
+    }
+
+    function buildMultiMassModel() {
+      const n = floorCount();
+      const { masses, stiffnesses, dampings, massMatrix, stiffnessMatrix, dampingMatrix } = readMatrixInputs(n);
+      solveLinearSystem(massMatrix, vectorZeros(n));
+      const massInfluence = multiplyMatrixVector(massMatrix, Array.from({ length: n }, () => 1));
+      return { n, masses, stiffnesses, dampings, massMatrix, stiffnessMatrix, dampingMatrix, massInfluence };
+    }
+
+    function calculateModalAnalysis() {
+      if (analysisModelSelect.value === "single") {
+        const omega = Math.max(0.001, numberValue(omegaInput, 5));
+        const dampingRatio = Math.max(0, numberValue(hInput, 0.05));
+        return {
+          size: 1,
+          maxResidual: 0,
+          hasRepeatedEigenvalues: false,
+          modes: [{
+            number: 1,
+            eigenvalue: omega * omega,
+            omega,
+            frequency: omega / (2 * Math.PI),
+            period: 2 * Math.PI / omega,
+            dampingRatio,
+            vector: [1],
+            displayVector: [1],
+            residual: 0
+          }]
+        };
+      }
+
+      const model = buildMultiMassModel();
+      const transformed = model.stiffnessMatrix.map((row, i) => row.map((value, j) => (
+        value / Math.sqrt(model.masses[i] * model.masses[j])
+      )));
+      const decomposition = jacobiSymmetricEigen(transformed);
+      const order = decomposition.values
+        .map((value, index) => ({ value, index }))
+        .sort((a, b) => a.value - b.value);
+      const eigenvalueScale = Math.max(1, ...decomposition.values.map(value => Math.abs(value)));
+
+      const modes = order.map(({ value, index }, modeIndex) => {
+        if (value < -1e-9 * eigenvalueScale) {
+          throw new Error("負の固有値があるため、剛性行列を確認してください。");
+        }
+        const eigenvalue = Math.max(0, value);
+        let vector = model.masses.map((mass, row) => decomposition.vectors[row][index] / Math.sqrt(mass));
+        const massNorm = Math.sqrt(Math.max(0, quadraticForm(vector, model.massMatrix)));
+        if (massNorm < 1e-12) throw new Error("固有ベクトルを正規化できません。");
+        vector = vector.map(component => component / massNorm);
+
+        let signIndex = 0;
+        vector.forEach((component, row) => {
+          if (Math.abs(component) > Math.abs(vector[signIndex])) signIndex = row;
+        });
+        if (vector[signIndex] < 0) vector = vector.map(component => -component);
+
+        const maxComponent = Math.max(...vector.map(component => Math.abs(component)), 1e-12);
+        const displayVector = vector.map(component => component / maxComponent);
+        const omega = Math.sqrt(eigenvalue);
+        const massProduct = multiplyMatrixVector(model.massMatrix, vector);
+        const stiffnessProduct = multiplyMatrixVector(model.stiffnessMatrix, vector);
+        const residualVector = stiffnessProduct.map((component, row) => (
+          component - eigenvalue * massProduct[row]
+        ));
+        const denominator = Math.max(
+          1,
+          vectorNorm(stiffnessProduct),
+          eigenvalue * vectorNorm(massProduct)
+        );
+        const residual = vectorNorm(residualVector) / denominator;
+        const dampingRatio = omega > 1e-12
+          ? quadraticForm(vector, model.dampingMatrix) / (2 * omega * quadraticForm(vector, model.massMatrix))
+          : Number.NaN;
+
+        return {
+          number: modeIndex + 1,
+          eigenvalue,
+          omega,
+          frequency: omega / (2 * Math.PI),
+          period: omega > 1e-12 ? 2 * Math.PI / omega : Number.POSITIVE_INFINITY,
+          dampingRatio,
+          vector,
+          displayVector,
+          residual
+        };
+      });
+
+      const hasRepeatedEigenvalues = modes.some((mode, index) => {
+        if (index === 0) return false;
+        const previous = modes[index - 1];
+        return Math.abs(mode.eigenvalue - previous.eigenvalue) <= 1e-8 * eigenvalueScale;
+      });
+
+      return {
+        size: model.n,
+        modes,
+        maxResidual: Math.max(decomposition.residual / eigenvalueScale, ...modes.map(mode => mode.residual)),
+        hasRepeatedEigenvalues
+      };
+    }
+
+
+    function modalContext(fn){
+      if(document.getElementById('modalBuilding').value!=='B')return fn();
+      const original=modalAnalysis;
+      try {modalAnalysis=modalAnalysisB;return withB(fn);} finally {modalAnalysis=original;}
+    }
+    function renderModalAnalysis(){return modalContext(renderModalAnalysisOriginal);}
+    function drawModeShape(){return modalContext(drawModeShapeOriginal);}
+    function selectedMode() {
+      if (!modalAnalysis.modes.length) return null;
+      const index = Math.max(0, Math.min(
+        modalAnalysis.modes.length - 1,
+        Number.parseInt(modeShapeSelect.value, 10) || 0
+      ));
+      return modalAnalysis.modes[index];
+    }
+
+    function renderModalTable() {
+      const selected = selectedMode();
+      modalTableBody.innerHTML = "";
+      modalAnalysis.modes.forEach(mode => {
+        const row = document.createElement("tr");
+        row.classList.toggle("selected-mode", mode === selected);
+        const values = [
+          String(mode.number),
+          analysisNumber(mode.eigenvalue),
+          analysisNumber(mode.omega),
+          analysisNumber(mode.frequency),
+          Number.isFinite(mode.period) ? analysisNumber(mode.period) : "∞",
+          Number.isFinite(mode.dampingRatio) ? analysisNumber(mode.dampingRatio * 100, 3) : "—",
+          `[${mode.displayVector.map(value => analysisNumber(value, 3)).join(", ")}]`
+        ];
+        values.forEach(value => {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          row.append(cell);
+        });
+        row.addEventListener("click", () => {
+          modeShapeSelect.value = String(mode.number - 1);
+          modalContext(renderModalTable);
+        });
+        modalTableBody.append(row);
+      });
+    }
+
+    function renderModalAnalysisOriginal() {
+      const previous = Math.max(0, Number.parseInt(modeShapeSelect.value, 10) || 0);
+      modeShapeSelect.innerHTML = "";
+      modalAnalysis.modes.forEach(mode => {
+        modeShapeSelect.append(new Option(`Mode ${mode.number}`, String(mode.number - 1)));
+      });
+      modeShapeSelect.disabled = !modalAnalysis.modes.length;
+      if (modalAnalysis.modes.length) {
+        modeShapeSelect.value = String(Math.min(previous, modalAnalysis.modes.length - 1));
+      }
+      renderModalTable();
+
+      if (!modalAnalysis.modes.length) {
+        modalSummary.textContent = "固有値解析結果を表示できません。入力値を確認してください。";
+        return;
+      }
+      const repeatedNote = modalAnalysis.hasRepeatedEigenvalues
+        ? " 重複固有値では固有ベクトル基底は一意ではありません。"
+        : "";
+      modalSummary.textContent = `計算用の固有ベクトルは φᵀMφ=1、表と図は最大絶対成分=1で正規化しています。最大相対残差=${analysisNumber(modalAnalysis.maxResidual, 3)}。h は φᵀCφ/(2ωφᵀMφ) の等価モード減衰比です。非比例減衰ではモード間連成が残ります。${repeatedNote}`;
+    }
+
+    function drawModeShapeOriginal() {
+      const ctx = modeContext;
+      const width = modeShapeCanvas.width;
+      const height = modeShapeCanvas.height;
+      const mode = selectedMode();
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+
+      if (!mode) {
+        ctx.fillStyle = "#687386";
+        ctx.font = "13px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("固有モードを計算できません。", width / 2, height / 2);
+        return;
+      }
+
+      const centerX = width / 2;
+      const topY = 42;
+      const groundY = height - 32;
+      const storyGap = (groundY - topY) / Math.max(1, mode.displayVector.length);
+      const horizontalScale = Math.max(36, Math.min(width * 0.34, 120));
+      const points = [{ x: centerX, y: groundY }];
+      mode.displayVector.forEach((component, index) => {
+        points.push({
+          x: centerX + component * horizontalScale,
+          y: groundY - storyGap * (index + 1)
+        });
+      });
+
+      ctx.strokeStyle = "#cbd5e1";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(centerX, topY - 6);
+      ctx.lineTo(centerX, groundY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.strokeStyle = "#e2e8f0";
+      ctx.fillStyle = "#64748b";
+      ctx.font = "10px system-ui, sans-serif";
+      ctx.textAlign = "right";
+      mode.displayVector.forEach((_, index) => {
+        const y = groundY - storyGap * (index + 1);
+        ctx.beginPath();
+        ctx.moveTo(20, y);
+        ctx.lineTo(width - 20, y);
+        ctx.stroke();
+        ctx.fillText(`${index + 1}F`, centerX - horizontalScale - 8, y + 3);
+      });
+
+      ctx.strokeStyle = "#1864ab";
+      ctx.fillStyle = "#dbeafe";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      points.forEach((point, index) => {
+        if (index === 0) ctx.moveTo(point.x, point.y);
+        else ctx.lineTo(point.x, point.y);
+      });
+      ctx.stroke();
+      points.slice(1).forEach(point => {
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      });
+
+      ctx.fillStyle = "#172033";
+      ctx.font = "12px system-ui, sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText(`Mode ${mode.number}`, 12, 18);
+      ctx.fillText(`λ=${analysisNumber(mode.eigenvalue)}  T=${Number.isFinite(mode.period) ? analysisNumber(mode.period) : "∞"} s`, 12, 34);
+      ctx.strokeStyle = "#64748b";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(18, groundY + 4);
+      ctx.lineTo(width - 18, groundY + 4);
+      ctx.stroke();
+    }
+
+    function topDisplacement(point) {
+      if (point?.floors?.length) return point.floors[point.floors.length - 1];
+      return point?.x || 0;
+    }
+
+    function maxAbsDisplacement(point) {
+      if (point?.floors?.length) {
+        return point.floors.reduce((max, value) => Math.max(max, Math.abs(value)), 0);
+      }
+      return Math.abs(point?.x || 0);
+    }
+
+    function computeSingleMassResponse() {
+      const dt = Math.max(0.001, numberValue(timeStep, 0.01));
+      const endTime = inputMotion[inputMotion.length - 1].time;
+      const omega = Math.max(0.001, numberValue(omegaInput, 5));
+      const h = Math.max(0, numberValue(hInput, 0.05));
+      let x = 0;
+      let v = 0;
+      response = [];
+
+      function deriv(time, displacement, velocity) {
+        return {
+          dx: velocity,
+          dv: -interpolateAcc(time) - 2 * h * omega * velocity - omega * omega * displacement
+        };
+      }
+
+      for (let time = 0; time <= endTime; time += dt) {
+        response.push({ time, x, v, floors: [x], velocities: [v], ag: interpolateAcc(time) });
+        const k1 = deriv(time, x, v);
+        const k2 = deriv(time + dt / 2, x + k1.dx * dt / 2, v + k1.dv * dt / 2);
+        const k3 = deriv(time + dt / 2, x + k2.dx * dt / 2, v + k2.dv * dt / 2);
+        const k4 = deriv(time + dt, x + k3.dx * dt, v + k3.dv * dt);
+        x += (dt / 6) * (k1.dx + 2 * k2.dx + 2 * k3.dx + k4.dx);
+        v += (dt / 6) * (k1.dv + 2 * k2.dv + 2 * k3.dv + k4.dv);
+      }
+    }
+
+    function computeMultiMassResponse() {
+      const dt = Math.max(0.001, numberValue(timeStep, 0.01));
+      const endTime = inputMotion[inputMotion.length - 1].time;
+      const model = buildMultiMassModel();
+
+      response = [];
+      let x = vectorZeros(model.n);
+      let v = vectorZeros(model.n);
+
+      function deriv(time, displacement, velocity) {
+        const groundAcc = interpolateAcc(time);
+        const elasticForces = multiplyMatrixVector(model.stiffnessMatrix, displacement);
+        const dampingForces = multiplyMatrixVector(model.dampingMatrix, velocity);
+        const load = displacement.map((_, index) => (
+          -model.massInfluence[index] * groundAcc - dampingForces[index] - elasticForces[index]
+        ));
+        const acceleration = solveLinearSystem(model.massMatrix, load);
+        return { dx: velocity, dv: acceleration };
+      }
+
+      for (let time = 0; time <= endTime; time += dt) {
+        response.push({
+          time,
+          x: x[x.length - 1],
+          v: v[v.length - 1],
+          floors: [...x],
+          velocities: [...v],
+          ag: interpolateAcc(time)
+        });
+
+        const k1 = deriv(time, x, v);
+        const k2 = deriv(time + dt / 2, addVectors(x, k1.dx, dt / 2), addVectors(v, k1.dv, dt / 2));
+        const k3 = deriv(time + dt / 2, addVectors(x, k2.dx, dt / 2), addVectors(v, k2.dv, dt / 2));
+        const k4 = deriv(time + dt, addVectors(x, k3.dx, dt), addVectors(v, k3.dv, dt));
+
+        x = x.map((value, index) => value + (dt / 6) * (
+          k1.dx[index] + 2 * k2.dx[index] + 2 * k3.dx[index] + k4.dx[index]
+        ));
+        v = v.map((value, index) => value + (dt / 6) * (
+          k1.dv[index] + 2 * k2.dv[index] + 2 * k3.dv[index] + k4.dv[index]
+        ));
+      }
+    }
+
+    function computeResponse() {
+      try {
+        if (analysisModelSelect.value === "single") computeSingleMassResponse();
+        else computeMultiMassResponse();
+        computeComparison();
+        modalAnalysis = calculateModalAnalysis();
+        matrixError = "";
+      } catch (error) {
+        matrixError = error.message;
+        setStatus(`入力値を確認してください: ${matrixError}`, true);
+        const n = floorCount();
+        response = [{ time: 0, x: 0, v: 0, floors: vectorZeros(n), velocities: vectorZeros(n), ag: 0 }];
+        modalAnalysis = { modes: [], size: n };
+      }
+      renderModalAnalysis();
+      renderResponseLegend();
+      collapseEventCache = undefined;
+      if (typeof timeSlider !== "undefined") syncTimeControls();
+    }
+
+    function responseAt(time) {
+      if (!response.length) return { x: 0, floors: [0], ag: 0 };
+      if (time <= response[0].time) return response[0];
+      if (time >= response[response.length - 1].time) return response[response.length - 1];
+      const dt = response[1].time - response[0].time;
+      const index = Math.min(response.length - 2, Math.max(0, Math.floor(time / dt)));
+      const a = response[index];
+      const b = response[index + 1];
+      const r = (time - a.time) / (b.time - a.time || 1);
+      return {
+        time,
+        x: a.x + (b.x - a.x) * r,
+        v: a.v + (b.v - a.v) * r,
+        floors: a.floors.map((value, index) => value + (b.floors[index] - value) * r),
+        velocities: a.velocities.map((value, index) => value + (b.velocities[index] - value) * r),
+        ag: a.ag + (b.ag - a.ag) * r
+      };
+    }
+
+    function displayXPixelsFromDisplacement(displacement, limitBase) {
+      const zoom = numberValue(zoomInput, 20);
+      const rawXPixels = displacement * zoom * 100;
+      return rawXPixels; // 比較と目盛を一致させる線形縮尺。
+    }
+
+    function displayXPixels(current, limitBase) {
+      return displayXPixelsFromDisplacement(topDisplacement(current), limitBase);
+    }
+
+    function oldFindCollapseEvent() {
+      if (collapseEventCache !== undefined) return collapseEventCache;
+      const threshold = 0.10;
+      const hit = response.find(point => maxAbsDisplacement(point) >= threshold);
+      if (!hit) {
+        collapseEventCache = null;
+        return collapseEventCache;
+      }
+
+      const floors = hit.floors?.length ? hit.floors : [hit.x || 0];
+      const drifts = floors.map((value, index) => value - (index === 0 ? 0 : floors[index - 1]));
+      let failureStory = 0;
+      drifts.forEach((value, index) => {
+        if (Math.abs(value) > Math.abs(drifts[failureStory])) failureStory = index;
+      });
+      const topVelocity = hit.velocities?.[hit.velocities.length - 1] ?? hit.v ?? 0;
+      const directionSource = topDisplacement(hit) || topVelocity || 1;
+      collapseEventCache = {
+        time: hit.time,
+        threshold,
+        direction: Math.sign(directionSource),
+        failureStory,
+        point: hit
+      };
+      return collapseEventCache;
+    }
+
+    function collapseInfoAt(time) {
+      if (!collapseEnabled) return null;
+      const event = findCollapseEvent();
+      return event && time >= event.time ? event : null;
+    }
+
+    function dampingCoefficientForStoryA(index) {
+      if (analysisModelSelect.value === "single") {
+        const omega = Math.max(0.001, numberValue(omegaInput, 5));
+        const h = Math.max(0, numberValue(hInput, 0.05));
+        return 2 * h * omega;
+      }
+      return Math.max(0, dampingValues[index] ?? 0);
+    }
+
+
+    function dampingCoefficientForStory(index) {return dampingCoefficientForStoryA(index);}
+    function dampingVisualForStory(index) {
+      const damping = dampingCoefficientForStory(index);
+      const braceCount = damping >= 1.5 ? 2 : damping >= 1 ? 1 : 0;
+      const damperLevel = damping >= 2
+        ? Math.max(1, Math.floor((damping - 1.5 + 1e-9) / 0.5))
+        : 0;
+      return { damping, braceCount, damperLevel };
+    }
+
+    function braceCountForStory(index) {
+      return dampingVisualForStory(index).braceCount;
+    }
+
+    function niceGridStepCm(zoom) {
+      const target = 58 / Math.max(0.5, zoom);
+      const steps = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100];
+      return steps.find(step => step >= target) || 100;
+    }
+
+    function drawDisplacementGrid(centerX, groundY) {
+      const width = motionCanvas.width;
+      const zoom = numberValue(zoomInput, 1);
+      const stepCm = niceGridStepCm(zoom);
+      const xLimit = width * 0.43;
+
+      m.save();
+      m.font = "11px system-ui, sans-serif";
+      m.textAlign = "center";
+      m.strokeStyle = "#cbd5e1";
+      m.fillStyle = "#5f6f83";
+      m.lineWidth = 1;
+
+      const gridLines = [{ valueCm: 0, x: centerX }];
+      [-1, 1].forEach(sign => {
+        let previousX = centerX;
+        for (let index = 1; index <= 12; index++) {
+          const valueCm = sign * index * stepCm;
+          const x = centerX + displayXPixelsFromDisplacement(valueCm / 100, xLimit);
+          if (x < 34 || x > width - 34) break;
+          if (Math.abs(x - previousX) < 48) continue;
+          gridLines.push({ valueCm, x });
+          previousX = x;
+        }
+      });
+
+      gridLines.sort((a, b) => a.x - b.x).forEach(({ valueCm, x }) => {
+        m.beginPath();
+        m.moveTo(x, 22);
+        m.lineTo(x, groundY + 5);
+        m.stroke();
+        const label = valueCm === 0 ? "0 cm" : `${valueCm > 0 ? "+" : ""}${formatParameter(valueCm)}`;
+        m.fillText(label, x, groundY + 24);
+      });
+
+      m.strokeStyle = "#8190a5";
+      m.lineWidth = 1.5;
+      m.beginPath();
+      m.moveTo(centerX, 22);
+      m.lineTo(centerX, groundY + 6);
+      m.stroke();
+      m.restore();
+    }
+
+    function drawCollapseDust(centerX, groundY, elapsed, direction) {
+      if (elapsed < 0.25) return;
+      const age = elapsed - 0.25;
+      const opacity = Math.max(0, 0.42 - age * 0.11);
+      if (opacity <= 0) return;
+
+      m.save();
+      for (let index = 0; index < 14; index++) {
+        const phase = index * 1.73;
+        const spread = (18 + age * (34 + index % 4 * 8)) * Math.sin(phase);
+        const drift = direction * age * 20;
+        const radius = 8 + (index % 5) * 3 + age * 8;
+        const rise = Math.min(44, age * (14 + index % 3 * 5));
+        m.fillStyle = `rgba(126, 116, 102, ${opacity * (0.55 + (index % 3) * 0.16)})`;
+        m.beginPath();
+        m.arc(centerX + spread + drift, groundY - 3 - rise * Math.abs(Math.cos(phase)), radius, 0, Math.PI * 2);
+        m.fill();
+      }
+      m.restore();
+    }
+
+    function drawCollapseDebris(centerX, groundY, event, modelType, elapsed) {
+      if (elapsed < 0.38) return;
+      const n = event.point.floors?.length || 1;
+      const pieceCount = Math.min(30, Math.max(10, n * 4));
+      const debrisHeight = modelType === "house" ? 245 : modelType === "mass" ? 250 : 230;
+      const colors = modelType === "house"
+        ? ["#7f1d1d", "#f1dfae", "#8b5a2b", "#9fc5e8"]
+        : modelType === "mass"
+          ? ["#1d4ed8", "#8cc6e8", "#334155", "#b45309"]
+          : ["#303846", "#5b6472", "#b45309", "#8a94a3"];
+
+      m.save();
+      for (let index = 0; index < pieceCount; index++) {
+        const layer = index % Math.max(1, n);
+        const releaseDelay = (index % 4) * 0.035;
+        const flightTime = Math.max(0, elapsed - 0.38 - releaseDelay);
+        const side = index % 2 === 0 ? -1 : 1;
+        const sourceFraction = Math.min(0.95, (layer + 0.28 + (index % 4) * 0.18) / Math.max(1, n));
+        const sourceHeight = 24 + sourceFraction * debrisHeight;
+        const width = modelType === "mass" ? 24 + index % 3 * 8 : 30 + index % 4 * 13;
+        const height = modelType === "house" ? 12 + index % 3 * 7 : 7 + index % 3 * 4;
+        const velocityX = event.direction * (26 + index % 5 * 9) + side * (14 + index % 4 * 7);
+        const velocityY = 6 + index % 4 * 5;
+        const gravity = 170;
+        const startX = centerX + side * (15 + index % 6 * 10);
+        const pileLevel = groundY - height / 2 - (index % 4) * 3;
+        const fallDistance = Math.max(1, sourceHeight - (groundY - pileLevel));
+        const landingTime = (-velocityY + Math.sqrt(velocityY * velocityY + 2 * gravity * fallDistance)) / gravity;
+        const travelTime = Math.min(flightTime, landingTime);
+        const landed = flightTime >= landingTime;
+        const slide = landed ? Math.sign(velocityX) * Math.min(9, (flightTime - landingTime) * 5) : 0;
+        const x = startX + velocityX * travelTime + slide;
+        const freeY = groundY - sourceHeight + velocityY * travelTime + 0.5 * gravity * travelTime * travelTime;
+        const y = landed ? pileLevel : freeY;
+        const rotation = landed
+          ? event.direction * (0.12 + (index % 5) * 0.08) * side
+          : (index % 2 ? 1 : -1) * travelTime * (0.8 + index % 4 * 0.35);
+
+        m.save();
+        m.translate(x, y);
+        m.rotate(rotation);
+        m.fillStyle = colors[index % colors.length];
+        m.strokeStyle = "#26313f";
+        m.lineWidth = 1;
+        m.fillRect(-width / 2, -height / 2, width, height);
+        m.strokeRect(-width / 2, -height / 2, width, height);
+        m.restore();
+      }
+      m.restore();
+    }
+
+    function drawCollapseAnimation(centerX, groundY, current, event, modelType) {
+      const elapsed = Math.max(0, t - event.time);
+      const yieldProgress = Math.min(1, elapsed / 0.32);
+      const fallProgress = Math.min(1, Math.max(0, (elapsed - 0.18) / 1.1));
+      const easedFall = fallProgress * fallProgress * (3 - 2 * fallProgress);
+      const remainingOpacity = Math.max(0, 1 - Math.max(0, elapsed - 0.82) / 0.48);
+
+      if (remainingOpacity > 0) {
+        const damagedFloors = (current.floors?.length ? current.floors : [current.x || 0]).map((value, index, values) => {
+          const aboveFailure = index >= event.failureStory ? 1 : (index + 1) / values.length;
+          return value + event.direction * yieldProgress * aboveFailure * 0.025;
+        });
+        const damagedCurrent = { ...current, x: damagedFloors[damagedFloors.length - 1], floors: damagedFloors };
+
+        m.save();
+        m.globalAlpha = remainingOpacity;
+        m.translate(centerX, groundY);
+        m.rotate(event.direction * easedFall * 0.36);
+        m.scale(1 + easedFall * 0.05, 1 - easedFall * 0.48);
+        m.translate(-centerX, -groundY);
+        drawStructureByType(centerX, groundY, damagedCurrent, modelType);
+        m.restore();
+
+        const n = damagedFloors.length;
+        const buildingHeight = modelType === "mass" ? 250 : modelType === "house" ? 210 : 230;
+        const crackY = groundY - buildingHeight * ((event.failureStory + 0.5) / n);
+        m.save();
+        m.strokeStyle = `rgba(180, 35, 24, ${0.35 + yieldProgress * 0.6})`;
+        m.lineWidth = 3;
+        m.beginPath();
+        m.moveTo(centerX - 25, crackY - 12);
+        m.lineTo(centerX - 8, crackY);
+        m.lineTo(centerX - 20, crackY + 14);
+        m.moveTo(centerX + 28, crackY - 10);
+        m.lineTo(centerX + 10, crackY + 2);
+        m.lineTo(centerX + 22, crackY + 16);
+        m.stroke();
+        m.restore();
+      }
+
+      drawCollapseDebris(centerX, groundY, event, modelType, elapsed);
+      drawCollapseDust(centerX, groundY, elapsed, event.direction);
+    }
+
+    function drawMassModel(centerX, groundY, current) {
+      const buildingHeight = 230;
+      const floors = current.floors?.length ? current.floors : [current.x || 0];
+      const n = floors.length;
+      const floorGap = buildingHeight / n;
+      const maxX = Math.min(motionCanvas.width * 0.34, buildingHeight * 0.86);
+      const points = floors.map((displacement, index) => ({
+        x: centerX + displayXPixelsFromDisplacement(displacement, maxX),
+        y: groundY - floorGap * (index + 1)
+      }));
+
+      m.strokeStyle = "#172033";
+      m.lineWidth = 4;
+      m.lineCap = "round";
+      m.beginPath();
+      m.moveTo(centerX, groundY);
+      m.stroke();
+      points.forEach((point,index)=>{
+        const previous=index?points[index-1]:{x:centerX,y:groundY};
+        m.strokeStyle=storyColor(current,index);m.beginPath();m.moveTo(previous.x,previous.y);m.lineTo(point.x,point.y);m.stroke();
+      });
+
+      points.forEach((point, index) => {
+        const width = index === n - 1 ? 64 : 54;
+        const height = Math.max(22, Math.min(40, floorGap * 0.42));
+        m.fillStyle = index === n - 1 ? "#dbeafe" : "#e0f2fe";
+        m.strokeStyle = storyColor(current,index);
+        m.lineWidth = 2;
+        m.fillRect(point.x - width / 2, point.y - height / 2, width, height);
+        m.strokeRect(point.x - width / 2, point.y - height / 2, width, height);
+        m.fillStyle = "#172033";
+        m.font = "11px system-ui, sans-serif";
+        m.textAlign = "center";
+        m.fillText(String(index + 1), point.x, point.y + 4);
+      });
+
+      m.fillStyle = "#172033";
+      m.font = "12px system-ui, sans-serif";
+      m.textAlign = "left";
+      if (analysisModelSelect.value === "multi") {
+        m.fillText(`N = ${n}`, centerX - 30, groundY - buildingHeight - 12);
+      }
+      m.lineCap = "butt";
+    }
+
+    function drawViscousDamper(x1, y1, x2, y2, level, position = 0.5) {
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const length = Math.hypot(dx, dy);
+      if (length < 1) return;
+
+      const strength = Math.min(6, Math.max(1, level));
+      const bodyLength = Math.min(38, Math.max(20, length * 0.24));
+      const bodyHeight = Math.min(14, 7 + strength);
+      const centerX = x1 + dx * position;
+      const centerY = y1 + dy * position;
+
+      m.save();
+      m.translate(centerX, centerY);
+      m.rotate(Math.atan2(dy, dx));
+
+      m.strokeStyle = "#0f766e";
+      m.lineWidth = 3 + Math.min(2, strength * 0.35);
+      m.beginPath();
+      m.moveTo(-bodyLength, 0);
+      m.lineTo(-bodyLength / 2, 0);
+      m.moveTo(bodyLength * 0.18, 0);
+      m.lineTo(bodyLength, 0);
+      m.stroke();
+
+      m.fillStyle = strength >= 4 ? "#fb923c" : "#fbbf24";
+      m.strokeStyle = "#9a3412";
+      m.lineWidth = 1.5;
+      m.fillRect(-bodyLength / 2, -bodyHeight / 2, bodyLength * 0.68, bodyHeight);
+      m.strokeRect(-bodyLength / 2, -bodyHeight / 2, bodyLength * 0.68, bodyHeight);
+
+      m.strokeStyle = "#0f766e";
+      m.lineWidth = 2;
+      m.beginPath();
+      m.moveTo(bodyLength * 0.18, -bodyHeight * 0.65);
+      m.lineTo(bodyLength * 0.18, bodyHeight * 0.65);
+      m.stroke();
+
+      const markCount = Math.min(4, strength);
+      m.strokeStyle = "rgba(124, 45, 18, 0.72)";
+      m.lineWidth = 1;
+      for (let mark = 0; mark < markCount; mark++) {
+        const markX = -bodyLength * 0.4 + mark * 4;
+        m.beginPath();
+        m.moveTo(markX, -bodyHeight * 0.28);
+        m.lineTo(markX, bodyHeight * 0.28);
+        m.stroke();
+      }
+      m.restore();
+    }
+
+    function drawDampingBadge(x, y, damping) {
+      const label = `制振 c=${formatParameter(damping)}`;
+      m.save();
+      m.font = "10px system-ui, sans-serif";
+      const badgeWidth = Math.ceil(m.measureText(label).width) + 12;
+      const badgeX = Math.max(4, Math.min(motionCanvas.width - badgeWidth - 4, x));
+      const badgeY = Math.max(4, Math.min(motionCanvas.height - 20, y - 9));
+      m.fillStyle = "rgba(255, 247, 237, 0.94)";
+      m.strokeStyle = "#f97316";
+      m.lineWidth = 1;
+      m.fillRect(badgeX, badgeY, badgeWidth, 18);
+      m.strokeRect(badgeX, badgeY, badgeWidth, 18);
+      m.fillStyle = "#9a3412";
+      m.textAlign = "left";
+      m.fillText(label, badgeX + 6, badgeY + 12.5);
+      m.restore();
+    }
+
+    function drawMultiStoryFrame(centerX, groundY, current, style = "frame") {
+      const floors = current.floors?.length ? current.floors : [current.x || 0];
+      const n = floors.length;
+      const frameWidth = style === "house" ? 150 : 160;
+      const buildingHeight = 230;
+      const floorGap = buildingHeight / n;
+      const xLimit = motionCanvas.width * 0.26;
+      const shifts = floors.map(displacement => displayXPixelsFromDisplacement(displacement, xLimit));
+      const leftBase = centerX - frameWidth / 2;
+      const rightBase = centerX + frameWidth / 2;
+
+      m.lineCap = "round";
+      m.lineJoin = "round";
+
+      for (let i = 0; i < n; i++) {
+        const lowerShift = i === 0 ? 0 : shifts[i - 1];
+        const upperShift = shifts[i];
+        const lowerY = groundY - floorGap * i;
+        const upperY = groundY - floorGap * (i + 1);
+
+        m.strokeStyle = storyColor(current, i);
+        m.lineWidth = style === "house" ? 5 : 8;
+        m.beginPath();
+        m.moveTo(leftBase + lowerShift, lowerY);
+        m.lineTo(leftBase + upperShift, upperY);
+        m.moveTo(rightBase + lowerShift, lowerY);
+        m.lineTo(rightBase + upperShift, upperY);
+        m.moveTo(leftBase + upperShift, upperY);
+        m.lineTo(rightBase + upperShift, upperY);
+        m.stroke();
+
+        if (style === "house") {
+          m.fillStyle = "rgba(254, 243, 199, 0.38)";
+          m.strokeStyle = "#78350f";
+          m.lineWidth = 1.5;
+          m.beginPath();
+          m.moveTo(leftBase + lowerShift, lowerY);
+          m.lineTo(rightBase + lowerShift, lowerY);
+          m.lineTo(rightBase + upperShift, upperY);
+          m.lineTo(leftBase + upperShift, upperY);
+          m.closePath();
+          m.fill();
+          m.stroke();
+          m.strokeStyle = "#1d4ed8";
+          m.lineWidth = 5;
+        }
+
+        const dampingVisual = dampingVisualForStory(i);
+        const braceCount = dampingVisual.braceCount;
+        if (braceCount > 0) {
+          m.strokeStyle = "#b45309";
+          m.lineWidth = style === "house" ? 3.5 : 5;
+          m.beginPath();
+          m.moveTo(leftBase + lowerShift, lowerY);
+          m.lineTo(rightBase + upperShift, upperY);
+          if (braceCount >= 2) {
+            m.moveTo(rightBase + lowerShift, lowerY);
+            m.lineTo(leftBase + upperShift, upperY);
+          }
+          m.stroke();
+        }
+
+        if (dampingVisual.damperLevel > 0) {
+          drawViscousDamper(
+            leftBase + lowerShift,
+            lowerY,
+            rightBase + upperShift,
+            upperY,
+            dampingVisual.damperLevel,
+            dampingVisual.damperLevel >= 2 ? 0.42 : 0.5
+          );
+          if (dampingVisual.damperLevel >= 2) {
+            drawViscousDamper(
+              rightBase + lowerShift,
+              lowerY,
+              leftBase + upperShift,
+              upperY,
+              dampingVisual.damperLevel,
+              0.58
+            );
+          }
+
+          const selectedStory = analysisModelSelect.value === "multi"
+            ? Math.max(0, Number.parseInt(dampingItemSelect.value, 10) || 0)
+            : 0;
+          if (i === selectedStory && floorGap >= 25) {
+            const labelX = rightBase + Math.max(lowerShift, upperShift) + 8;
+            drawDampingBadge(labelX, (lowerY + upperY) / 2, dampingVisual.damping);
+          }
+        }
+      }
+
+      if (style === "house") {
+        const roofY = groundY - buildingHeight;
+        const roofShift = shifts[shifts.length - 1];
+        m.fillStyle = "#b91c1c";
+        m.strokeStyle = "#7f1d1d";
+        m.lineWidth = 2;
+        m.beginPath();
+        m.moveTo(leftBase + roofShift - 16, roofY);
+        m.lineTo(rightBase + roofShift + 16, roofY);
+        m.lineTo(centerX + roofShift, roofY - 42);
+        m.closePath();
+        m.fill();
+        m.stroke();
+      }
+
+      m.lineCap = "butt";
+      m.lineJoin = "miter";
+    }
+
+    function drawHouseModel(centerX, groundY, current) {
+      const houseWidth = 150;
+      const wallHeight = 110;
+      const roofHeight = 58;
+      const xPixels = displayXPixels(current, motionCanvas.width * 0.28);
+      const shear = xPixels * 0.55;
+      const baseY = groundY;
+      const wallTopY = baseY - wallHeight;
+      const roofPeakY = wallTopY - roofHeight;
+      const baseLeft = centerX - houseWidth / 2;
+      const baseRight = centerX + houseWidth / 2;
+      const topLeft = baseLeft + shear;
+      const topRight = baseRight + shear;
+      const roofPeakX = centerX + xPixels;
+
+      function wallPoint(localX, localY) {
+        const r = localY / wallHeight;
+        return {
+          x: baseLeft + localX + shear * r,
+          y: baseY - localY
+        };
+      }
+
+      function drawWallRect(localX, localY, rectWidth, rectHeight, fill, stroke) {
+        const p1 = wallPoint(localX, localY);
+        const p2 = wallPoint(localX + rectWidth, localY);
+        const p3 = wallPoint(localX + rectWidth, localY + rectHeight);
+        const p4 = wallPoint(localX, localY + rectHeight);
+        m.fillStyle = fill;
+        m.strokeStyle = stroke;
+        m.lineWidth = 2;
+        m.beginPath();
+        m.moveTo(p1.x, p1.y);
+        m.lineTo(p2.x, p2.y);
+        m.lineTo(p3.x, p3.y);
+        m.lineTo(p4.x, p4.y);
+        m.closePath();
+        m.fill();
+        m.stroke();
+      }
+
+      m.fillStyle = "#fef3c7";
+      m.strokeStyle = "#78350f";
+      m.lineWidth = 2;
+      m.beginPath();
+      m.moveTo(baseLeft, baseY);
+      m.lineTo(baseRight, baseY);
+      m.lineTo(topRight, wallTopY);
+      m.lineTo(topLeft, wallTopY);
+      m.closePath();
+      m.fill();
+      m.stroke();
+
+      m.fillStyle = "#b91c1c";
+      m.strokeStyle = "#7f1d1d";
+      m.beginPath();
+      m.moveTo(topLeft - 18, wallTopY);
+      m.lineTo(topRight + 18, wallTopY);
+      m.lineTo(roofPeakX, roofPeakY);
+      m.closePath();
+      m.fill();
+      m.stroke();
+
+      drawWallRect(28, 48, 32, 28, "#bfdbfe", "#1e3a8a");
+      drawWallRect(houseWidth - 54, 0, 30, 58, "#92400e", "#451a03");
+    }
+
+    function drawFrameModel(centerX, groundY, current) {
+      const frameWidth = 160;
+      const frameHeight = 170;
+      const xPixels = displayXPixels(current, motionCanvas.width * 0.28);
+      const shear = xPixels * 0.7;
+      const baseY = groundY;
+      const topY = baseY - frameHeight;
+      const leftBaseX = centerX - frameWidth / 2;
+      const rightBaseX = centerX + frameWidth / 2;
+      const leftTopX = leftBaseX + shear;
+      const rightTopX = rightBaseX + shear;
+
+      m.lineCap = "round";
+      m.lineJoin = "round";
+      m.strokeStyle = "#1f2937";
+      m.lineWidth = 9;
+
+      m.beginPath();
+      m.moveTo(leftBaseX, baseY);
+      m.lineTo(leftTopX, topY);
+      m.moveTo(rightBaseX, baseY);
+      m.lineTo(rightTopX, topY);
+      m.moveTo(leftTopX, topY);
+      m.lineTo(rightTopX, topY);
+      m.moveTo(leftBaseX, baseY);
+      m.lineTo(rightBaseX, baseY);
+      m.stroke();
+
+      const dampingVisual = dampingVisualForStory(0);
+      const braceCount = dampingVisual.braceCount;
+      if (braceCount > 0) {
+        m.strokeStyle = "#b45309";
+        m.lineWidth = 5;
+        m.beginPath();
+        m.moveTo(leftBaseX, baseY);
+        m.lineTo(rightTopX, topY);
+        if (braceCount >= 2) {
+          m.moveTo(rightBaseX, baseY);
+          m.lineTo(leftTopX, topY);
+        }
+        m.stroke();
+      }
+
+
+      if (dampingVisual.damperLevel > 0) {
+        drawViscousDamper(
+          leftBaseX,
+          baseY,
+          rightTopX,
+          topY,
+          dampingVisual.damperLevel,
+          dampingVisual.damperLevel >= 2 ? 0.42 : 0.5
+        );
+        if (dampingVisual.damperLevel >= 2) {
+          drawViscousDamper(
+            rightBaseX,
+            baseY,
+            leftTopX,
+            topY,
+            dampingVisual.damperLevel,
+            0.58
+          );
+        }
+        drawDampingBadge(rightBaseX + 8, (baseY + topY) / 2, dampingVisual.damping);
+      }
+
+      m.strokeStyle = "#60a5fa";
+      m.lineWidth = 3;
+      m.beginPath();
+      m.moveTo(leftTopX, topY);
+      m.lineTo(rightTopX, topY);
+      m.stroke();
+
+      m.fillStyle = "#172033";
+      [
+        [leftBaseX, baseY],
+        [rightBaseX, baseY],
+        [leftTopX, topY],
+        [rightTopX, topY]
+      ].forEach(([x, y]) => {
+        m.beginPath();
+        m.arc(x, y, 5, 0, Math.PI * 2);
+        m.fill();
+      });
+
+      m.lineCap = "butt";
+      m.lineJoin = "miter";
+    }
+
+    function drawStructureByType(centerX, groundY, current, modelType = modelSelect.value) {
+      if (modelType === "house") {
+        drawMultiStoryFrame(centerX, groundY, current, "house");
+      } else if (modelType === "frame") {
+        drawMultiStoryFrame(centerX, groundY, current, "frame");
+      } else {
+        drawMassModel(centerX, groundY, current);
+      }
+    }
+
+    function drawOriginalMotion(current) {
+      const width = motionCanvas.width;
+      const height = motionCanvas.height;
+      const groundY = height - 48;
+      const centerX = width / 2;
+      const groundShift = -current.ag * 4;
+
+      m.clearRect(0, 0, width, height);
+      m.fillStyle = "#f3f6fa";
+      m.fillRect(0, 0, width, height);
+
+      m.strokeStyle = "#8c99aa";
+      m.lineWidth = 1;
+      for (let y = 35; y < groundY; y += 35) {
+        m.beginPath();
+        m.moveTo(28, y);
+        m.lineTo(width - 28, y);
+        m.stroke();
+      }
+
+      drawDisplacementGrid(centerX, groundY);
+
+      m.fillStyle = "#65758b";
+      m.fillRect(0, groundY + groundShift, width, 8);
+
+      const collapseInfo = collapseInfoAt(t);
+      if (collapseInfo) {
+        drawCollapseAnimation(centerX, groundY + groundShift, current, collapseInfo, modelSelect.value);
+      } else {
+        drawStructureByType(centerX, groundY + groundShift, current);
+      }
+
+      m.fillStyle = "#172033";
+      m.font = "14px system-ui, sans-serif";
+      m.textAlign = "left";
+      m.fillText(`t = ${t.toFixed(2)} s`, 18, 28);
+      const responseSymbol = analysisModelSelect.value === "single" ? "x" : "xN";
+      m.fillText(`${responseSymbol} = ${(topDisplacement(current) * 100).toFixed(2)} cm`, 18, 50);
+      if (collapseInfo) {
+        m.fillStyle = "#b42318";
+        m.textAlign = "right";
+        m.fillText(`崩壊進行  ${Math.max(0, t - collapseInfo.time).toFixed(2)} s`, width - 18, 28);
+      }
+    }
+
+    function activeResponseSeries() {
+      const n = analysisModelSelect.value === "multi" ? floorCount() : 1;
+      const showAll = responseGraphMode.value === "all" && n > 1;
+      const indexes = showAll
+        ? Array.from({ length: n }, (_, index) => index)
+        : [n - 1];
+      return indexes.map(index => ({
+        floorIndex: index,
+        label: analysisModelSelect.value === "single" ? "x" : `x${index + 1}（${index + 1}階）`,
+        color: responseSeriesColors[index % responseSeriesColors.length],
+        isTop: index === n - 1
+      }));
+    }
+
+    function renderResponseLegendA() {
+      const series = activeResponseSeries();
+      responseLegend.innerHTML = "";
+      series.forEach(item => {
+        const legendItem = document.createElement("span");
+        legendItem.className = "legend-item";
+        const swatch = document.createElement("span");
+        swatch.className = "legend-swatch";
+        swatch.style.setProperty("--series-color", item.color);
+        const label = document.createElement("span");
+        label.textContent = item.isTop && series.length > 1 ? `${item.label}（最上階）` : item.label;
+        legendItem.append(swatch, label);
+        responseLegend.append(legendItem);
+      });
+      graphCanvas.setAttribute(
+        "aria-label",
+        series.length > 1 ? "全階の時刻歴応答変位グラフ" : `${series[0]?.label || "応答"}の時刻歴応答変位グラフ`
+      );
+    }
+
+
+    function renderResponseLegend(){
+      renderResponseLegendA();
+      Array.from(responseLegend.children || []).forEach(el=>{const label=el.lastChild;if(label)label.textContent='A：'+label.textContent;});
+      if(!responseB.length)return;
+      withB(()=>activeResponseSeries()).forEach(item=>{
+        const el=document.createElement('span');el.className='legend-item';
+        const swatch=document.createElement('span');swatch.className='legend-swatch';swatch.style.setProperty('--series-color',item.color);swatch.style.background='repeating-linear-gradient(to right,'+item.color+' 0 5px,transparent 5px 8px)';
+        const label=document.createElement('span');label.textContent='B：'+item.label+'（破線）';el.append(swatch,label);responseLegend.append(el);
+      });
+    }
+    function drawOriginalGraph() {
+      const width = graphCanvas.width;
+      const height = graphCanvas.height;
+      const plotLeft = 52;
+      const plotRight = width - 14;
+      const plotTop = 34;
+      const plotBottom = height - 30;
+      const mid = (plotTop + plotBottom) / 2;
+      const windowSec = 12;
+      const start = Math.max(0, t - windowSec);
+      const end = start + windowSec;
+      const zoom = numberValue(zoomInput, 20);
+
+      g.clearRect(0, 0, width, height);
+      g.fillStyle = "#ffffff";
+      g.fillRect(0, 0, width, height);
+
+      const gridStepCm = niceGridStepCm(zoom);
+      g.font = "11px system-ui, sans-serif";
+      g.textAlign = "right";
+      g.fillStyle = "#687386";
+      g.strokeStyle = "#e2e7ef";
+      g.lineWidth = 1;
+      for (let index = -8; index <= 8; index++) {
+        const valueCm = index * gridStepCm;
+        const y = mid - valueCm * zoom;
+        if (y < plotTop || y > plotBottom) continue;
+        g.beginPath();
+        g.moveTo(plotLeft, y);
+        g.lineTo(plotRight, y);
+        g.stroke();
+        g.fillText(`${formatParameter(valueCm)} cm`, plotLeft - 6, y + 4);
+      }
+
+      g.textAlign = "center";
+      for (let seconds = 0; seconds <= windowSec; seconds += 2) {
+        const x = plotLeft + (seconds / windowSec) * (plotRight - plotLeft);
+        g.beginPath();
+        g.moveTo(x, plotTop);
+        g.lineTo(x, plotBottom);
+        g.stroke();
+        g.fillText(`${(start + seconds).toFixed(1)} s`, x, height - 11);
+      }
+
+      g.strokeStyle = "#94a0b2";
+      g.strokeRect(plotLeft, plotTop, plotRight - plotLeft, plotBottom - plotTop);
+
+      const series = activeResponseSeries();
+      g.save();
+      g.beginPath();
+      g.rect(plotLeft, plotTop, plotRight - plotLeft, plotBottom - plotTop);
+      g.clip();
+      series.forEach((item, seriesIndex) => {
+        g.strokeStyle = item.color;
+        g.globalAlpha = item.isTop ? 1 : 0.82;
+        g.lineWidth = item.isTop ? 2.5 : 1.6;
+        const dashPatterns = [[], [8, 3], [3, 3], [10, 3, 2, 3]];
+        g.setLineDash(dashPatterns[seriesIndex % dashPatterns.length]);
+        g.beginPath();
+        let drew = false;
+        for (let px = plotLeft; px <= plotRight; px++) {
+          const time = start + ((px - plotLeft) / (plotRight - plotLeft)) * (end - start);
+          const current = responseAt(time);
+          const displacement = current.floors?.[item.floorIndex] ?? current.x ?? 0;
+          const py = mid - displacement * zoom * 100;
+          if (!drew) {
+            g.moveTo(px, py);
+            drew = true;
+          } else {
+            g.lineTo(px, py);
+          }
+        }
+        g.stroke();
+      });
+      g.globalAlpha = 1;
+      g.setLineDash([]);
+
+      const collapseEvent = null;
+      if (collapseEvent && collapseEvent.time >= start && collapseEvent.time <= end) {
+        const collapseX = plotLeft + ((collapseEvent.time - start) / (end - start)) * (plotRight - plotLeft);
+        g.strokeStyle = "#b42318";
+        g.setLineDash([5, 4]);
+        g.beginPath();
+        g.moveTo(collapseX, plotTop);
+        g.lineTo(collapseX, plotBottom);
+        g.stroke();
+        g.setLineDash([]);
+      }
+      g.restore();
+
+      g.fillStyle = "#172033";
+      g.font = "13px system-ui, sans-serif";
+      g.textAlign = "left";
+      g.fillText(series.length > 1 ? "全階応答変位 x1 … xN" : `${series[0]?.label || "x"} の応答変位`, plotLeft, 21);
+    }
+
+    function draw(timestamp) {
+      if (lastFrameTime === null) lastFrameTime = timestamp;
+      const elapsed = Math.min(0.05, (timestamp - lastFrameTime) / 1000);
+      lastFrameTime = timestamp;
+
+      if (!response.length) computeResponse();
+      const duration = endTime();
+
+      if (running) {
+        t += elapsed * numberValue(speedInput, 1);
+        if (t >= duration) {
+          t = duration;
+          running = false;
+        }
+      }
+      syncTimeControls();
+
+      const current = responseAt(t);
+      drawMotion(current);
+      drawGraph();
+      drawModeShape();
+      requestAnimationFrame(draw);
+    }
+
+    folderInput.addEventListener("change", async event => {
+      folderFiles = Array.from(event.target.files)
+        .filter(file => /\.(csv|tsv|txt|xlsx|xls)$/i.test(file.name) && !file.name.startsWith("."))
+        .sort((a, b) => filePath(a).localeCompare(filePath(b)));
+
+      networkSelect.innerHTML = "";
+      stationGroupSelect.innerHTML = "";
+      dataFileSelect.innerHTML = "";
+      if (!folderFiles.length) {
+        networkSelect.disabled = true;
+        networkSelect.append(new Option("K-NETのみ使用", "knet"));
+        stationGroupSelect.disabled = true;
+        stationGroupSelect.append(new Option("フォルダを選択してください", ""));
+        dataFileSelect.disabled = true;
+        dataFileSelect.append(new Option("CSV/XLSXが見つかりません", ""));
+        setStatus("選択されたフォルダ内にCSV/XLSXファイルが見つかりませんでした。", true);
+        return;
+      }
+
+      populateNetworks();
+      populateStationGroups();
+      if (renderFolderFileOptions()) await loadSelectedFolderFile();
+    });
+
+    stationGroupSelect.addEventListener("change", async () => {
+      if (renderFolderFileOptions()) await loadSelectedFolderFile();
+    });
+
+    dataFileSelect.addEventListener("change", loadSelectedFolderFile);
+
+    timeColumn.addEventListener("change", () => updateMotionFromRows());
+    accColumn.addEventListener("change", () => updateMotionFromRows());
+    accUnit.addEventListener("change", () => updateMotionFromRows());
+    timeStep.addEventListener("change", () => {
+      t = 0;
+      computeResponse();
+      syncTimeControls();
+    });
+    omegaInput.addEventListener("change", () => {
+      t = 0;
+      computeResponse();
+      syncTimeControls();
+    });
+    hInput.addEventListener("change", () => {
+      t = 0;
+      computeResponse();
+      syncTimeControls();
+    });
+
+    function changeHBy(delta) {
+      const current = Math.max(0, numberValue(hInput, 0.05));
+      const next = Math.min(1, Math.max(0, Math.round((current + delta) * 1e6) / 1e6));
+      hInput.value = formatParameter(next);
+      hInput.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    hDecreaseButton.addEventListener("click", () => changeHBy(-0.01));
+    hIncreaseButton.addEventListener("click", () => changeHBy(0.01));
+
+    function syncAnalysisModelControls() {
+      const isMulti = analysisModelSelect.value === "multi";
+      singleParameterSection.hidden = isMulti;
+      multiParameterSection.hidden = !isMulti;
+      t = 0;
+      running = false;
+      computeResponse();
+      syncTimeControls();
+    }
+
+    analysisModelSelect.addEventListener("change", () => {
+      syncAnalysisModelControls();
+      setStatus(`${analysisLabel()}に切り替えました。同じ入力でAとBを比較します。`);
+    });
+
+    function handleFloorCountUpdate() {
+      syncParameterControls(true);
+      t = 0;
+      computeResponse();
+      syncTimeControls();
+      if (!matrixError) setStatus(`質点数を N=${floorCount()} に変更しました。追加した質点には既定値を設定しています。`);
+    }
+    floorCountInput.addEventListener("input", handleFloorCountUpdate);
+    floorCountInput.addEventListener("change", handleFloorCountUpdate);
+
+    [massItemSelect, stiffnessItemSelect, dampingItemSelect].forEach(select => {
+      select.addEventListener("change", syncSelectedParameterInputs);
+    });
+
+    function updateParameterValue(select, input, values, label, strictlyPositive) {
+      const index = Math.max(0, Number.parseInt(select.value, 10) || 0);
+      const value = Number.parseFloat(input.value);
+      const invalid = !Number.isFinite(value) || (strictlyPositive ? value <= 0 : value < 0);
+      if (invalid) {
+        setStatus(`${label}${index + 1} は${strictlyPositive ? "0より大きい" : "0以上の"}数値にしてください。`, true);
+        return;
+      }
+      values[index] = value;
+      t = 0;
+      computeResponse();
+      syncTimeControls();
+      if (!matrixError) setStatus(`${label}${index + 1}=${formatParameter(value)} で応答を再計算しました。`);
+    }
+
+    massValueInput.addEventListener("input", () => {
+      updateParameterValue(massItemSelect, massValueInput, massValues, "m", true);
+    });
+    stiffnessValueInput.addEventListener("input", () => {
+      updateParameterValue(stiffnessItemSelect, stiffnessValueInput, stiffnessValues, "k", false);
+    });
+    dampingValueInput.addEventListener("input", () => {
+      updateParameterValue(dampingItemSelect, dampingValueInput, dampingValues, "c", false);
+    });
+
+    function changeDampingBy(delta) {
+      const current = Math.max(0, numberValue(dampingValueInput, 0));
+      const next = Math.max(0, Math.round((current + delta) * 1e6) / 1e6);
+      dampingValueInput.value = formatParameter(next);
+      dampingValueInput.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+
+    dampingDecreaseButton.addEventListener("click", () => changeDampingBy(-0.5));
+    dampingIncreaseButton.addEventListener("click", () => changeDampingBy(0.5));
+
+    resetMatricesButton.addEventListener("click", () => {
+      resetMatrixInputs();
+      t = 0;
+      computeResponse();
+      syncTimeControls();
+      if (!matrixError) setStatus(`N=${floorCount()} の質量・剛性・減衰の既定値を作成しました。`);
+    });
+    speedInput.addEventListener("input", syncRangeReadouts);
+    zoomInput.addEventListener("input", syncRangeReadouts);
+    responseGraphMode.addEventListener("change", renderResponseLegend);
+    modeShapeSelect.addEventListener("change", () => {
+      modalContext(renderModalTable);
+      drawModeShape();
+    });
+    collapseToggle.addEventListener("click", () => {
+      collapseEnabled = !collapseEnabled;
+      collapseToggle.textContent = collapseEnabled ? "崩壊演出あり" : "崩壊演出なし";
+      collapseToggle.setAttribute("aria-pressed", String(collapseEnabled));
+    });
+
+    document.getElementById("startButton").addEventListener("click", () => {
+      addRunHistory();
+      running = true;
+    });
+    document.getElementById("pauseButton").addEventListener("click", () => { running = false; });
+    document.getElementById("resetButton").addEventListener("click", () => {
+      running = false;
+      setPlaybackTime(0);
+    });
+    timeSlider.addEventListener("input", () => {
+      running = false;
+      setPlaybackTime(timeSlider.value);
+    });
+
+
+
+    let collapseA=null,collapseB=null;
+    let drawingBuildingB=false;
+    let calculatingB=false;
+    let massesB=[],stiffnessesB=[],dampingsB=[];
+    let modalAnalysisB={modes:[],size:0};
+    function storyColor(point,i) {
+      if(!collapseEnabled)return '#2563eb';
+      const ratio=Math.abs(drifts(point)[i])/limit();
+      return ratio>=1?'#dc2626':ratio>=0.5?'#d97706':'#2563eb';
+    }
+    function drawComparisonGrid(center,base,left,width) {
+      const zoom=numberValue(zoomInput,1),step=niceGridStepCm(zoom);
+      m.save();m.font='10px system-ui';m.textAlign='center';
+      for(let i=-12;i<=12;i++){
+        const value=i*step,x=center+value*zoom;
+        if(x<left+8||x>left+width-8)continue;
+        m.strokeStyle=i?'#d7dde8':'#8190a5';m.lineWidth=i?1:1.5;
+        m.beginPath();m.moveTo(x,96);m.lineTo(x,base+3);m.stroke();
+        m.fillStyle='#687386';m.fillText(formatParameter(value)+' cm',x,base+20);
+      }
+      m.restore();
+    }
+    function heights() {
+      const n=analysisModelSelect.value==='multi'?floorCount():1;
+      const a=document.getElementById((calculatingB||drawingBuildingB)?'storyHeightsB':'storyHeights').value.split(/[,、\s]+/).filter(Boolean).map(Number);
+      if(!a.length || a.some(v=>!Number.isFinite(v)||v<=0) || (a.length!==1&&a.length!==n)) throw new Error('各層高さは正の数で、1個または質点数と同じ個数を入力してください。');
+      return a.length===1?Array(n).fill(a[0]):a;
+    }
+    function limit() {
+      const v=Number(document.getElementById((calculatingB||drawingBuildingB)?'driftLimitB':'driftLimit').value);
+      if(!Number.isFinite(v)||v<=0) throw new Error('変形角の目安は正の数にしてください。');
+      return v;
+    }
+    function drifts(point) {const hs=heights(); return point.floors.map((v,i)=>(v-(i?point.floors[i-1]:0))/hs[i]);}
+
+    function collapseEventFor(data) {
+      const threshold=limit();
+      for(let i=0;i<data.length;i++){
+        const now=drifts(data[i]);
+        if(!now.some(v=>Math.abs(v)>=threshold))continue;
+        const before=i?drifts(data[i-1]):now;
+        let fraction=1,story=now.findIndex(v=>Math.abs(v)>=threshold);
+        now.forEach((v,j)=>{
+          if(Math.abs(v)<threshold)return;
+          const target=Math.sign(v)*threshold;
+          const r=i?Math.min(1,Math.max(0,(target-before[j])/(v-before[j]||1))):0;
+          if(r<=fraction){fraction=r;story=j;}
+        });
+        const prev=i?data[i-1]:data[i],next=data[i];
+        const mix=(a,b)=>a+(b-a)*fraction;
+        const floors=next.floors.map((v,j)=>mix(prev.floors[j],v));
+        const velocities=next.velocities.map((v,j)=>mix(prev.velocities[j],v));
+        const time=mix(prev.time,next.time);
+        const point={time,floors,velocities,x:floors.at(-1),v:velocities.at(-1),ag:mix(prev.ag,next.ag)};
+        return {time,point,failureStory:story,direction:Math.sign(now[story])||1,threshold};
+      }
+      return null;
+    }
+    function findCollapseEvent(){return calculatingB?collapseB:collapseA;}
+    const swappedControlIds=['analysisModelSelect','floorCount','omega','h','modelSelect','dampingItemSelect'];
+    function withB(fn) {
+      const oldValues=swappedControlIds.map(id=>document.getElementById(id).value);
+      const oldMass=massValues,oldK=stiffnessValues,oldC=dampingValues,oldResponse=response;
+      const oldFlag=calculatingB;
+      try {
+        swappedControlIds.forEach(id=>document.getElementById(id).value=document.getElementById(id+'B').value);
+        massValues=massesB;stiffnessValues=stiffnessesB;dampingValues=dampingsB;calculatingB=true;
+        return fn();
+      } finally {
+        swappedControlIds.forEach((id,i)=>document.getElementById(id).value=oldValues[i]);
+        massValues=oldMass;stiffnessValues=oldK;dampingValues=oldC;response=oldResponse;calculatingB=oldFlag;
+      }
+    }
+    function computeComparison() {
+      comparisonError='';responseB=[];collapseA=null;collapseB=null;
+      try {
+        heights();limit();
+        withB(()=>{
+          heights();limit();
+          if(analysisModelSelect.value==='single')computeSingleMassResponse();else computeMultiMassResponse();
+          responseB=response;modalAnalysisB=calculateModalAnalysis();
+        });
+        if([...response,...responseB].some(p=>p.floors.some(v=>!Number.isFinite(v))))throw new Error('数値計算が発散しました。時間刻みを小さくしてください。');
+      } catch(e){comparisonError=e.message;responseB=[];modalAnalysisB={modes:[],size:0};}
+      if(!comparisonError){collapseA=collapseEventFor(response);collapseB=withB(()=>collapseEventFor(responseB));}
+      updateSummary();
+    }
+    function atB(time) {const a=response;try{response=responseB;return responseAt(time);}finally{response=a;}}
+    function metrics(data) {
+      let displacement=0, angle=0, first=null;
+      for(const p of data){displacement=Math.max(displacement,...p.floors.map(Math.abs));const d=Math.max(...drifts(p).map(Math.abs));angle=Math.max(angle,d);if(first===null&&d>=limit())first=p.time;}
+      return '最大相対変位 '+(displacement*100).toFixed(2)+' cm ／ 最大層間変形角 '+angle.toFixed(4)+' rad ／ 初回超過 '+(first===null?'なし':first.toFixed(2)+' s');
+    }
+
+
+    function comparisonMetrics(data,event){
+      let displacement=0,angle=0,displacementFloor=0,angleStory=0,displacementTime=0,angleTime=0;
+      for(const point of data){
+        const angles=drifts(point);
+        point.floors.forEach((v,i)=>{if(Math.abs(v)>displacement){displacement=Math.abs(v);displacementFloor=i;displacementTime=point.time;}});
+        angles.forEach((v,i)=>{if(Math.abs(v)>angle){angle=Math.abs(v);angleStory=i;angleTime=point.time;}});
+      }
+      return {displacement,angle,displacementFloor,angleStory,displacementTime,angleTime,arrival:event?event.time:null,threshold:limit()};
+    }
+    function percentageChange(a,b){
+      if(a===0)return b===0?'同じ（両方0）':'算出不可（Aが0）';
+      const change=(b-a)/a*100;
+      if(Math.abs(change)<0.05)return 'ほぼ同じ（変化0.1%未満）';
+      return Math.abs(change).toFixed(1)+'%'+(change<0?'減少':'増加');
+    }
+    function arrivalChange(a,b){
+      if(a===null&&b===null)return '両方未到達';
+      if(a===null)return 'Bのみ到達';
+      if(b===null)return 'Aのみ到達';
+      const delta=b-a;
+      return Math.abs(delta)<0.005?'同時（差0.01 s未満）':Math.abs(delta).toFixed(2)+' s'+(delta>0?'遅い':'早い');
+    }
+    function updateSummary(){
+      const box=document.getElementById('comparisonSummary'),wrap=document.getElementById('comparisonTableWrap');
+      wrap.hidden=!!comparisonError;box.classList.toggle('error',!!comparisonError);
+      if(comparisonError){box.textContent='設定エラー：'+comparisonError;document.getElementById('modelStatusB').textContent=box.textContent;return;}
+      const a=comparisonMetrics(response,collapseA),b=withB(()=>comparisonMetrics(responseB,collapseB));
+      box.textContent='A・Bに同じ地震入力を与えた比較結果です。設定を変更すると自動更新します。';
+      const put=(name,model,text)=>document.getElementById('compare-'+name+'-'+model).textContent=text;
+      for(const [id,v] of [['a',a],['b',b]]){
+        put('displacement',id,(v.displacement*100).toFixed(3)+'\n（'+(v.displacementFloor+1)+'階・'+v.displacementTime.toFixed(2)+' s）');
+        put('angle',id,v.angle.toFixed(6)+'\n（'+(v.angleStory+1)+'層・'+v.angleTime.toFixed(2)+' s）');
+        put('arrival',id,v.arrival===null?'未到達':v.arrival.toFixed(2)+' s');
+        put('threshold',id,String(v.threshold));
+      }
+      put('displacement','diff',percentageChange(a.displacement,b.displacement));
+      put('angle','diff',percentageChange(a.angle,b.angle));
+      put('arrival','diff',arrivalChange(a.arrival,b.arrival));
+      put('threshold','diff',a.threshold===b.threshold?'同じ限界で比較':'限界設定が異なります');
+      document.getElementById('comparisonInterpretation').textContent='Bの最大相対変位はAに対して'+percentageChange(a.displacement,b.displacement)+'、最大層間変形角は'+percentageChange(a.angle,b.angle)+'。'+(a.threshold!==b.threshold?'限界設定が異なるため、到達時刻の比較には注意してください。':'');
+      document.getElementById('modelStatusA').textContent='A：'+metrics(response);
+      document.getElementById('modelStatusB').textContent='B：'+withB(()=>metrics(responseB));
+    }
+    function drawMotion(current) {
+      const w=motionCanvas.width,H=motionCanvas.height,base=H-48;
+      m.clearRect(0,0,w,H);m.fillStyle='#f3f6fa';m.fillRect(0,0,w,H);
+      m.font='12px system-ui';m.fillStyle='#172033';m.textAlign='left';
+      m.fillText('t = '+t.toFixed(2)+' s   地盤に対する相対変位（同一縮尺）',12,20);
+      const a=interpolateAcc(t),peak=Math.max(0.001,...inputMotion.map(p=>Math.abs(p.acc))),len=a/peak*Math.min(65,w/6),cx=w/2;
+      m.strokeStyle='#7c3aed';m.lineWidth=3;m.beginPath();m.moveTo(cx,57);m.lineTo(cx+len,57);m.stroke();
+      if(Math.abs(len)>1){const end=cx+len,dir=Math.sign(len);m.beginPath();m.moveTo(end-dir*8,52);m.lineTo(end,57);m.lineTo(end-dir*8,62);m.stroke();}
+      m.fillStyle='#7c3aed';m.fillText('地盤加速度 '+(a*100).toFixed(2)+' gal（矢印は方向と相対的大きさ）',12,40);
+      m.fillStyle='#65758b';m.fillRect(0,base,w,8);
+      if(comparisonError||matrixError){m.fillStyle='#b42318';m.fillText(comparisonError||matrixError,12,100);return;}
+      const points=[current,atB(t)];
+      points.forEach((point,j)=>{
+        const render=()=>{
+        const event=j?collapseB:collapseA;
+        const broken=collapseEnabled&&event&&t>=event.time;
+        const shown=broken?event.point:point;
+        const center=w*(j?0.75:0.25),ds=drifts(shown);
+        m.save();m.beginPath();m.rect(j*w/2,75,w/2,base-75);m.clip();
+        drawComparisonGrid(center,base,j*w/2,w/2);
+        drawingBuildingB=!!j;
+        try {if(broken)drawCollapseAnimation(center,base,event.point,event,modelSelect.value);else drawStructureByType(center,base,point);} finally {m.restore();}
+        m.fillStyle='#172033';m.font='12px system-ui';m.textAlign='center';
+        m.fillText((j?'B':'A')+(broken?' '+(event.failureStory+1)+'層で崩壊（'+event.time.toFixed(2)+' s）':' 最上階 '+(point.x*100).toFixed(2)+' cm'),center,H-13);
+        m.textAlign='left';m.font='10px system-ui';
+        ds.forEach((v,i)=>{
+          const y=base-230/point.floors.length*(i+0.5);
+          m.fillStyle=storyColor(point,i);
+          m.fillRect(j*w/2+5,y-8,5,16);
+          m.fillText((i+1)+'層 θ='+v.toFixed(4)+(broken?'（崩壊開始時）':collapseEnabled&&Math.abs(v)>=limit()?' 限界':''),j*w/2+14,y+3);
+        });
+        const outside=point.floors.some(v=>Math.abs(v*numberValue(zoomInput,1)*100)>w/4-90);
+        if(outside){m.fillStyle='#b42318';m.fillText('表示範囲外：倍率を下げてください',j*w/2+8,92);}
+        };
+        try {if(j)withB(render);else render();}finally{drawingBuildingB=false;}
+      });
+      m.strokeStyle='#c9d1df';m.beginPath();m.moveTo(w/2,78);m.lineTo(w/2,base);m.stroke();
+    }
+    function drawGraph() {
+      drawOriginalGraph();
+      const w=graphCanvas.width,H=graphCanvas.height,left=52,right=w-14,top=34,bottom=H-30,mid=(top+bottom)/2,start=Math.max(0,t-12),scale=numberValue(zoomInput,1)*100;
+      g.save();g.beginPath();g.rect(left,top,right-left,bottom-top);g.clip();g.setLineDash([6,4]);
+      if(responseB.length)withB(()=>activeResponseSeries()).forEach(item=>{g.strokeStyle=item.color;g.lineWidth=2;g.beginPath();for(let px=left;px<=right;px++){const p=atB(start+(px-left)/(right-left)*12),y=mid-p.floors[item.floorIndex]*scale;px===left?g.moveTo(px,y):g.lineTo(px,y);}g.stroke();});
+
+      if(collapseEnabled&&!comparisonError&&!matrixError){
+        [response,responseB].forEach((data,j)=>{
+          const find=()=>data.find(p=>drifts(p).some(v=>Math.abs(v)>=limit()));
+          const hit=j?collapseB:collapseA;
+          if(!hit||hit.time<start||hit.time>start+12)return;
+          const x=left+(hit.time-start)/12*(right-left);
+          g.strokeStyle=j?'#d97706':'#b42318';g.setLineDash(j?[2,3]:[7,4]);g.beginPath();g.moveTo(x,top);g.lineTo(x,bottom);g.stroke();
+          g.fillStyle=g.strokeStyle;g.font='10px system-ui';g.fillText((j?'B':'A')+'崩壊開始',Math.min(x+4,right-55),top+12+j*13);
+        });
+      }
+      const cursor=left+(t-start)/12*(right-left);g.setLineDash([]);g.strokeStyle='#172033';g.beginPath();g.moveTo(cursor,top);g.lineTo(cursor,bottom);g.stroke();g.restore();
+      drawAcceleration();
+    }
+    function drawAcceleration() {
+      const canvas=document.getElementById('accGraph');syncCanvasResolution(canvas);const c=canvas.getContext('2d'),w=canvas.width,H=canvas.height,L=55,R=w-15,T=20,B=H-30,mid=(T+B)/2,duration=Math.max(endTime(),0.01);
+      const max=Math.max(0.001,...inputMotion.map(p=>Math.abs(p.acc)))*1.1;
+      c.clearRect(0,0,w,H);c.font='11px system-ui';
+      [-1,0,1].forEach(q=>{const y=mid-q*(B-T)/2;c.strokeStyle='#e2e7ef';c.beginPath();c.moveTo(L,y);c.lineTo(R,y);c.stroke();c.fillStyle='#687386';c.fillText((q*max*100).toFixed(2),3,y+4);});
+      c.strokeStyle='#7c3aed';c.beginPath();for(let px=L;px<=R;px++){const y=mid-interpolateAcc((px-L)/(R-L)*duration)/max*(B-T)/2;px===L?c.moveTo(px,y):c.lineTo(px,y);}c.stroke();
+      const x=L+t/duration*(R-L);c.strokeStyle='#172033';c.beginPath();c.moveTo(x,T);c.lineTo(x,B);c.stroke();c.fillStyle='#687386';c.fillText('0 s',L,H-8);c.fillText(duration.toFixed(1)+' s',R-45,H-8);
+    }
+    ['storyHeights','driftLimit'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{running=false;t=0;computeResponse();syncTimeControls();}));
+
+
+    function syncBControls(reset=false){
+      const n=Math.min(12,Math.max(1,Math.round(Number(document.getElementById('floorCountB').value)||5)));
+      document.getElementById('floorCountB').value=n;
+      const defaults=defaultParameterValues(n);
+      massesB=reset?defaults.masses:resizeValues(massesB,defaults.masses);
+      stiffnessesB=reset?defaults.stiffnesses:resizeValues(stiffnessesB,defaults.stiffnesses);
+      dampingsB=reset?defaults.dampings:resizeValues(dampingsB,defaults.dampings);
+      ['mass','stiffness','damping'].forEach((name,i)=>populateParameterSelect(document.getElementById(name+'ItemSelectB'),['m','k','c'][i],n));
+      const multi=document.getElementById('analysisModelSelectB').value==='multi';
+      document.getElementById('singleParameterSectionB').hidden=multi;
+      document.getElementById('multiParameterSectionB').hidden=!multi;
+      syncBInputs();
+    }
+    function syncBInputs(){['mass','stiffness','damping'].forEach((name,i)=>{const index=Number(document.getElementById(name+'ItemSelectB').value)||0;document.getElementById(name+'ValueInputB').value=[massesB,stiffnessesB,dampingsB][i][index];});}
+    function changedB(){running=false;t=0;computeResponse();syncTimeControls();}
+    ['mass','stiffness','damping'].forEach((name,i)=>{
+      document.getElementById(name+'ItemSelectB').addEventListener('change',syncBInputs);
+      document.getElementById(name+'ValueInputB').addEventListener('input',()=>{
+        const value=Number(document.getElementById(name+'ValueInputB').value),index=Number(document.getElementById(name+'ItemSelectB').value)||0;
+        if(!Number.isFinite(value)||(i===0?value<=0:value<0)){document.getElementById('modelStatusB').textContent='B：入力値を確認してください。';return;}
+        [massesB,stiffnessesB,dampingsB][i][index]=value;changedB();
+      });
+    });
+    ['analysisModelSelectB','floorCountB'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{syncBControls();changedB();}));
+    ['omegaB','hB','storyHeightsB','driftLimitB'].forEach(id=>document.getElementById(id).addEventListener('change',changedB));
+    document.getElementById('resetMatricesButtonB').addEventListener('click',()=>{syncBControls(true);changedB();});
+    [['hDecreaseButtonB','hB',-0.01],['hIncreaseButtonB','hB',0.01],['dampingDecreaseButtonB','dampingValueInputB',-0.5],['dampingIncreaseButtonB','dampingValueInputB',0.5]].forEach(([button,input,delta])=>document.getElementById(button).addEventListener('click',()=>{
+      const el=document.getElementById(input);el.value=Math.max(0,Math.round((Number(el.value)+delta)*1e6)/1e6);if(input==='hB')el.value=Math.min(1,Number(el.value));el.dispatchEvent(new Event(input==='hB'?'change':'input',{bubbles:true}));
+    }));
+    document.getElementById('copyAToB').addEventListener('click',()=>{
+      ['analysisModelSelect','floorCount','omega','h','modelSelect','storyHeights','driftLimit'].forEach(id=>document.getElementById(id+'B').value=document.getElementById(id).value);
+      massesB=[...massValues];stiffnessesB=[...stiffnessValues];dampingsB=[...dampingValues];syncBControls();changedB();
+    });
+    document.getElementById("modalBuilding").addEventListener("change",()=>{renderModalAnalysis();drawModeShape();});
+    syncBControls(true);
+    resetMatrixInputs();
+    syncAnalysisModelControls();
+    populateColumns([
+      ["time", "acceleration_gal"],
+      ...makeSampleMotion().map(point => [point.time, point.acc])
+    ]);
+    syncRangeReadouts();
+    syncCanvasResolutions();
+
+    const viewNames=['motion','response','acceleration','modes','history','summary'];
+    function selectViewer(name,focus=false){
+      viewNames.forEach(id=>{
+        const selected=id===name,button=document.getElementById('tab-'+id);
+        document.getElementById('screen-'+id).hidden=!selected;
+        button.setAttribute('aria-selected',String(selected));button.tabIndex=selected?0:-1;
+        if(selected&&focus)button.focus();
+      });
+      syncCanvasResolutions();drawMotion(responseAt(t));drawGraph();drawModeShape();
+    }
+    viewNames.forEach((id,index)=>{
+      const button=document.getElementById('tab-'+id);
+      button.addEventListener('click',()=>selectViewer(id));
+      button.addEventListener('keydown',event=>{
+        let next;
+        if(event.key==='ArrowRight')next=(index+1)%viewNames.length;
+        if(event.key==='ArrowLeft')next=(index+viewNames.length-1)%viewNames.length;
+        if(event.key==='Home')next=0;
+        if(event.key==='End')next=viewNames.length-1;
+        if(next!==undefined){event.preventDefault();selectViewer(viewNames[next],true);}
+      });
+    });
+    document.getElementById('expandViewer').addEventListener('click',()=>{
+      const layout=document.querySelector('.layout');
+      const expanded=layout.classList.toggle('viewer-expanded');
+      const button=document.getElementById('expandViewer');button.setAttribute('aria-pressed',String(expanded));button.textContent=expanded?'設定も表示':'表示を広げる';
+      syncCanvasResolutions();
+    });
+
+    requestAnimationFrame(draw);
+  </script>
+</body>
+</html>
